@@ -1,0 +1,41 @@
+# Coding Task Factory configuration
+# Repo-specific settings go here; pipeline code never hardcodes repo details.
+
+repo:
+  path: "./target_repo"
+  base_ref: "main"              # tag or branch of the starting version
+  setup_cmd: ""                 # e.g. "npm install" or "pip install -e ."
+  test_cmd: ""                  # e.g. "pytest" or "npm test"
+  result_format: "pytest"       # pytest | jest | junit_xml | text
+  timeout_s: 120                # per-subprocess timeout in seconds
+
+generation:
+  n_tasks: 10                   # target number of tasks to generate
+  behaviour_axes:
+    - new_business_rule
+    - threshold_or_limit
+    - state_transition
+    - validation_and_error_policy
+    - ordering_or_priority
+    - interaction_between_features
+    - idempotency
+    - rounding_or_units
+  max_repairs: 2                # max repair rounds per task
+
+gates:
+  determinism_runs: 3           # G4: number of identical runs
+  mutation_kill_threshold: 0.70 # G6: minimum kill rate
+  solver_attempts: 3            # G7: attempt budget for independent solver
+
+llm:
+  provider_env: "LLM_PROVIDER"
+  model_env: "LLM_MODEL"
+  key_env: "LLM_API_KEY"
+  max_tokens: 4096
+  temperature: 0.2
+
+output:
+  runs_dir: "./runs"
+  packages_dir: "./packages"
+  samples_dir: "./samples"
+  cache_dir: "./runs/cache"
