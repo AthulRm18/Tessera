@@ -1,6 +1,5 @@
 # Coding Task Factory
 
-
 Turn a real codebase into **solvable, testable, meaningfully different** feature-development tasks for evaluating AI coding systems. Every task ships with requirements, a reference implementation, feature tests and regression checks, and is only accepted if it passes automated validation gates.
 
 **Status:** pre-development. Fill the sections marked `FILL` from real runs only. Never write a number you did not measure.
