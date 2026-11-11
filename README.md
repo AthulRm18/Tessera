@@ -1,6 +1,5 @@
 # Coding Task Factory
 
-> Innodata Frontier AI Hackathon 2026 · Track 1
 
 Turn a real codebase into **solvable, testable, meaningfully different** feature-development tasks for evaluating AI coding systems. Every task ships with requirements, a reference implementation, feature tests and regression checks, and is only accepted if it passes automated validation gates.
 
