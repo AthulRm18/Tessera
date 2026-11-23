@@ -1,4 +1,8 @@
-"""Pydantic configuration models loaded from config.yaml."""
+"""Pydantic configuration models loaded from config.yaml.
+
+All repo-specific details live here — no repo names or paths in pipeline code.
+Swapping repos = only config.yaml change + rerun.
+"""
 
 from __future__ import annotations
 
@@ -10,20 +14,22 @@ from pydantic import BaseModel, Field
 
 
 class RepoConfig(BaseModel):
-    """Repository-specific settings."""
+    """Repository-specific settings — all sourced from config.yaml."""
 
     path: str = "./target_repo"
     base_ref: str = "main"
     setup_cmd: str = ""
     test_cmd: str = ""
-    result_format: str = "pytest"
+    result_format: str = "pytest"   # pytest | jest | junit_xml | text
     timeout_s: int = Field(default=120, ge=10)
+    # Docker image to use for Harbor tasks (one image per base commit, reused across tasks)
+    docker_image: str = ""
 
 
 class GenerationConfig(BaseModel):
     """Task generation settings."""
 
-    n_tasks: int = Field(default=10, ge=1)
+    n_tasks: int = Field(default=6, ge=1)   # target: 5–6 strong tasks
     behaviour_axes: list[str] = Field(default_factory=lambda: [
         "new_business_rule",
         "threshold_or_limit",
@@ -34,19 +40,22 @@ class GenerationConfig(BaseModel):
         "idempotency",
         "rounding_or_units",
     ])
+    enable_bugfix_axis: bool = False   # enable only after feature tasks work (UNVERIFIED organizer req)
     max_repairs: int = Field(default=2, ge=0)
 
 
 class GatesConfig(BaseModel):
-    """Validation gate thresholds."""
+    """Validation gate thresholds. Cheapest gates first; stop at first failure."""
 
     determinism_runs: int = Field(default=3, ge=1)
     mutation_kill_threshold: float = Field(default=0.70, ge=0.0, le=1.0)
     solver_attempts: int = Field(default=3, ge=1)
+    # G7 uses a DIFFERENT model/session than the generator
+    solver_model_env: str = "LLM_SOLVER_MODEL"
 
 
 class LLMConfig(BaseModel):
-    """LLM access configuration — values come from environment variables."""
+    """LLM access — values come from environment variables only; never hardcoded."""
 
     provider_env: str = "LLM_PROVIDER"
     model_env: str = "LLM_MODEL"
@@ -85,4 +94,3 @@ def load_config(config_path: str | Path = "config.yaml") -> FactoryConfig:
             raw: dict[str, Any] = yaml.safe_load(f) or {}
         return FactoryConfig(**raw)
     return FactoryConfig()
-

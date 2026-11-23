@@ -3,9 +3,9 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
-name = "coding-task-factory"
+name = "tessera"
 version = "0.1.0"
-description = "Generate solvable, testable, meaningfully different coding tasks from a real codebase"
+description = "Tessera: turn a codebase into validated coding tasks for evaluating AI coding systems"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
@@ -14,7 +14,6 @@ dependencies = [
     "typer>=0.9.0",
     "pydantic>=2.0.0",
     "rich>=13.0.0",
-    "pytest>=7.0.0",
     "PyYAML>=6.0",
 ]
 
@@ -27,7 +26,8 @@ dev = [
 ]
 
 [project.scripts]
-factory = "factory.cli:app"
+tessera = "factory.cli:app"
+tess = "factory.cli:app"
 
 [tool.setuptools.packages.find]
 include = ["factory*"]
@@ -45,4 +45,3 @@ disallow_untyped_defs = true
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-

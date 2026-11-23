@@ -1,4 +1,6 @@
-# Environment and secrets
+# .gitignore — Tessera project
+
+# Secrets — never commit
 .env
 .env.local
 
@@ -22,10 +24,16 @@ venv/
 # Run artifacts (gitignored; samples/ is committed deliberately)
 runs/
 packages/
+
+# Target repos (supplied separately; never modify in place)
+target_repo/
+target_repo_*/
+
+# Git worktrees used by pipeline (tempdir, cleaned up after each task)
 *.worktree
 
-# Target repo (supplied separately)
-target_repo/
+# Docker
+*.tar
 
 # OS
 .DS_Store
@@ -36,4 +44,3 @@ Thumbs.db
 .coverage
 htmlcov/
 .mypy_cache/
-

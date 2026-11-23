@@ -1,4 +1,8 @@
-"""Pydantic models for plans, tasks, and validation evidence."""
+"""Pydantic models for plans, tasks, gates, and validation evidence.
+
+These are Tessera-internal models. The Harbor task directory is emitted
+by the packager using these; the packager never guesses Harbor field names.
+"""
 
 from __future__ import annotations
 
@@ -24,7 +28,7 @@ class TaskPlan(BaseModel):
 
 
 class CoverageGrid(BaseModel):
-    """Collection of planned tasks covering module × axis combinations."""
+    """Collection of planned tasks — module × axis × partner."""
 
     plans: list[TaskPlan] = Field(default_factory=list)
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
@@ -35,9 +39,9 @@ class CoverageGrid(BaseModel):
 # ---------------------------------------------------------------------------
 
 class AcceptanceCriterion(BaseModel):
-    """One numbered acceptance criterion inside a task."""
+    """One numbered acceptance criterion (AC1, AC2, …)."""
 
-    id: str  # e.g. "AC1"
+    id: str
     text: str
 
 
@@ -46,7 +50,7 @@ class AcceptanceCriterion(BaseModel):
 # ---------------------------------------------------------------------------
 
 class TaskMetadata(BaseModel):
-    """Metadata for a generated task — written to task.json."""
+    """Internal Tessera metadata for a generated task — written to tessera/task_metadata.json."""
 
     task_id: str
     title: str
@@ -64,21 +68,31 @@ class TaskMetadata(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Validation evidence
+# Validation evidence (gate results)
 # ---------------------------------------------------------------------------
 
 class GateResult(BaseModel):
-    """Result of a single validation gate."""
+    """Base result of a single validation gate."""
 
     passed: bool
     evidence: Any = None
 
 
+class OrganizerChecks(BaseModel):
+    """The three explicit organizer validation checks (G2)."""
+
+    original_repo_works: bool = False         # (a) baseline suite green before patch
+    tests_pass_with_implementation: bool = False  # (b) feature tests pass with reference patch
+    tests_fail_without_feature: bool = False  # (c) feature tests fail without the patch
+
+
 class G2Result(GateResult):
-    """Fail-to-pass evidence."""
+    """Fail-to-pass evidence — includes the three organizer checks explicitly."""
 
     base_failed: list[str] = Field(default_factory=list)
     patched_passed: list[str] = Field(default_factory=list)
+    failure_types: list[str] = Field(default_factory=list)   # must be assertion, not import/syntax
+    organizer_checks: OrganizerChecks = Field(default_factory=OrganizerChecks)
 
 
 class G3Result(GateResult):
@@ -89,7 +103,7 @@ class G3Result(GateResult):
 
 
 class G4Result(GateResult):
-    """Determinism evidence."""
+    """Determinism evidence — 3 runs, no flaky tests."""
 
     runs: int = 3
     flaky_tests: list[str] = Field(default_factory=list)
@@ -104,7 +118,7 @@ class G5Result(GateResult):
 
 
 class G6Result(GateResult):
-    """Mutation check evidence."""
+    """Mutation check evidence (patch lines only)."""
 
     mutants: int = 0
     killed: int = 0
@@ -113,7 +127,7 @@ class G6Result(GateResult):
 
 
 class G7Result(GateResult):
-    """Independent solve evidence."""
+    """Independent solve evidence (separate session, never sees reference or tests)."""
 
     solved: bool = False
     attempts: int = 0
@@ -121,14 +135,15 @@ class G7Result(GateResult):
 
 
 class ValidationReport(BaseModel):
-    """Full validation report for a task — written to validation_report.json."""
+    """Full validation report — written to tessera/validation_report.json inside the package."""
 
     task_id: str
     base_commit: str = ""
-    gates: dict[str, GateResult] = Field(default_factory=dict)
+    gates: dict[str, Any] = Field(default_factory=dict)
     repairs: int = 0
     accepted: bool = False
     reject_reason: str | None = None
+    first_failing_gate: str | None = None   # cheapest-first; stop here
     run: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -142,12 +157,17 @@ class RunInfo(BaseModel):
     run_id: str
     started_at: str = Field(default_factory=lambda: datetime.now().isoformat())
     config_snapshot: dict[str, Any] = Field(default_factory=dict)
+    repo_name: str = ""          # human label only; never hard-coded in logic
+    base_commit: str = ""
     tasks_planned: int = 0
+    tasks_generated: int = 0
     tasks_accepted: int = 0
     tasks_rejected: int = 0
     total_tokens: int = 0
-    est_cost: float = 0.0
+    est_cost_usd: float = 0.0
+    cache_hits: int = 0
     duration_s: float = 0.0
+    mock_provider_used: bool = False   # True → excluded from real reports
 
 
 class Manifest(BaseModel):
