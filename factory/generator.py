@@ -70,7 +70,7 @@ REQUIREMENTS_SYSTEM_PROMPT = """You are a senior technical specifications writer
 Write clear, unambiguous, achievable requirements for a feature addition to an existing repository.
 Strict rules:
 1. Include a numbered list of Acceptance Criteria (AC1, AC2, AC3, ...).
-2. Include an '## Interface' section listing the exact symbol names, signatures, parameters, return types, and exception classes the tests will expect.
+2. Include an 'interface' section listing the exact symbol names, signatures, parameters, return types, and exception classes the tests will expect.
 3. Absolutely NO implementation hints, pseudocode, code snippets for the solution, or file patches in the requirements. Specify WHAT the software must do, NOT HOW to implement it.
 4. Respond ONLY with a valid JSON object:
 {
@@ -83,8 +83,7 @@ Strict rules:
   "interface": {
     "symbols": ["<symbol1>", "<symbol2>"],
     "details": "<signature and contract description>"
-  },
-  "markdown_text": "<full requirements markdown document with description, numbered criteria, and Interface section>"
+  }
 }
 """
 
@@ -171,13 +170,16 @@ def generate_requirements(
 
     md_text = data.get("markdown_text")
     if not md_text:
-        # Build markdown text from parts if not provided as single string
-        criteria_lines = "\n".join(f"{c.get('id', f'AC{i}')}. {c.get('text', '')}" for i, c in enumerate(data.get("acceptance_criteria", []), 1))
+        # Build markdown text cleanly from structured JSON fields
+        criteria_lines = "\n".join(f"{i}. **{c.get('id', f'AC{i}')}**: {c.get('text', '')}" for i, c in enumerate(data.get("acceptance_criteria", []), 1))
+        iface = data.get("interface", {})
+        symbols_str = "\n".join(f"- `{s}`" for s in iface.get("symbols", []))
+        details_str = iface.get("details", "")
         md_text = (
             f"# Task: {data.get('title', plan.title)}\n\n"
-            f"## Problem Description\n{data.get('problem_description', plan.description)}\n\n"
-            f"## Acceptance Criteria\n{criteria_lines}\n\n"
-            f"## Interface\n{json.dumps(data.get('interface', {}), indent=2)}\n"
+            f"## Problem Description\n\n{data.get('problem_description', plan.description)}\n\n"
+            f"## Acceptance Criteria\n\n{criteria_lines}\n\n"
+            f"## Interface\n\n### Symbols\n{symbols_str}\n\n### Details\n{details_str}\n"
         )
 
     criteria_raw = data.get("acceptance_criteria", [])

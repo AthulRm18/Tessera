@@ -440,15 +440,16 @@ def apply_patch(
     Returns (success, message).
     With check_only=True, uses git apply --check (no changes made).
     """
+    patch_abs = Path(patch_path).resolve()
     flag = "--check" if check_only else ""
     # Try with --recount first to tolerate minor line-count mismatches from LLMs
-    cmd = f'git apply --recount {flag} "{patch_path}"'
+    cmd = f'git apply --recount {flag} "{patch_abs}"'
     rc, stdout, stderr = run_cmd(cmd, cwd=repo_path)
     if rc == 0:
         return True, (stdout + stderr).strip()
 
     # Fallback to standard git apply
-    cmd = f'git apply {flag} "{patch_path}"'
+    cmd = f'git apply {flag} "{patch_abs}"'
     rc, stdout, stderr = run_cmd(cmd, cwd=repo_path)
     msg = (stdout + stderr).strip()
     return (rc == 0), msg
