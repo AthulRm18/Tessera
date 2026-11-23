@@ -73,6 +73,15 @@ class OutputConfig(BaseModel):
     cache_dir: str = "./runs/cache"
 
 
+class BudgetConfig(BaseModel):
+    """Hard budget limits to guard against runaway LLM usage."""
+
+    max_tokens_per_run: int = Field(default=200_000, ge=1_000)
+    max_cost_per_run: float = Field(default=2.00, ge=0.01)       # USD
+    max_tokens_per_task: int = Field(default=50_000, ge=1_000)
+    max_cost_per_task: float = Field(default=0.50, ge=0.01)      # USD
+
+
 class FactoryConfig(BaseModel):
     """Top-level configuration combining all sections."""
 
@@ -80,6 +89,7 @@ class FactoryConfig(BaseModel):
     generation: GenerationConfig = Field(default_factory=GenerationConfig)
     gates: GatesConfig = Field(default_factory=GatesConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    budget: BudgetConfig = Field(default_factory=BudgetConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
 
 

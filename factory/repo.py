@@ -220,6 +220,62 @@ def get_base_commit(repo_path: str | Path, ref: str) -> str:
     return stdout.strip()
 
 
+@dataclass
+class FileSymbols:
+    """Symbols extracted from a source file."""
+    path: str
+    classes: list[str] = field(default_factory=list)
+    functions: list[str] = field(default_factory=list)
+    exports: list[str] = field(default_factory=list)
+
+
+def extract_file_symbols(repo_path: str | Path, rel_path: str) -> FileSymbols:
+    """Extract class, function, and export symbol names from a file."""
+    full_path = Path(repo_path) / rel_path
+    fs = FileSymbols(path=rel_path)
+    if not full_path.exists() or not full_path.is_file():
+        return fs
+
+    try:
+        content = full_path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return fs
+
+    suffix = full_path.suffix.lower()
+    if suffix == ".py":
+        try:
+            import ast
+            tree = ast.parse(content)
+            for node in ast.iter_child_nodes(tree):
+                if isinstance(node, ast.ClassDef):
+                    fs.classes.append(node.name)
+                elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    fs.functions.append(node.name)
+        except Exception:
+            # Fallback regex
+            for m in re.finditer(r"^class\s+([A-Za-z0-9_]+)", content, re.MULTILINE):
+                fs.classes.append(m.group(1))
+            for m in re.finditer(r"^(?:async\s+)?def\s+([A-Za-z0-9_]+)", content, re.MULTILINE):
+                fs.functions.append(m.group(1))
+    elif suffix in (".js", ".ts", ".mjs"):
+        for m in re.finditer(r"class\s+([A-Za-z0-9_]+)", content):
+            fs.classes.append(m.group(1))
+        for m in re.finditer(r"(?:function\s+([A-Za-z0-9_]+)|(?:const|let|var)\s+([A-Za-z0-9_]+)\s*=\s*(?:function|\([^)]*\)\s*=>))", content):
+            name = m.group(1) or m.group(2)
+            if name:
+                fs.functions.append(name)
+        for m in re.finditer(r"export\s+(?:default\s+)?(?:class|function|const|let|var)\s+([A-Za-z0-9_]+)", content):
+            fs.exports.append(m.group(1))
+
+    return fs
+
+
+def build_symbol_repo_map(repo_path: str | Path) -> list[FileSymbols]:
+    """Return list of FileSymbols for all tracked files in the repository."""
+    raw_files = build_repo_map(repo_path)
+    return [extract_file_symbols(repo_path, f) for f in raw_files]
+
+
 def build_repo_map(repo_path: str | Path) -> list[str]:
     """Return list of all tracked files (relative paths)."""
     rc, stdout, _ = run_cmd("git ls-files", cwd=repo_path)

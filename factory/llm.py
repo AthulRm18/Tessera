@@ -170,9 +170,10 @@ class MockProvider(BaseProvider):
     name = "mock"
 
     def complete(self, model: str, messages: list[dict[str, str]], max_tokens: int, temperature: float) -> dict[str, Any]:
-        # Return a minimal valid structured response for tests
+        # Return custom mock if set in environment, else default minimal response
+        content = os.environ.get("LLM_MOCK_RESPONSE") or json.dumps({"mock": True, "message": "mock response for testing"})
         return {
-            "content": json.dumps({"mock": True, "message": "mock response for testing"}),
+            "content": content,
             "input_tokens": 10,
             "output_tokens": 5,
         }
@@ -325,8 +326,8 @@ class UsageLedger:
 def call_llm(
     messages: list[dict[str, str]],
     *,
-    ledger: UsageLedger,
-    cache_dir: Path,
+    ledger: UsageLedger | None = None,
+    cache_dir: Path | str | None = None,
     provider_env: str = "LLM_PROVIDER",
     model_env: str = "LLM_MODEL",
     max_tokens: int = 4096,
@@ -341,6 +342,10 @@ def call_llm(
     - If expect_json=True, parses and returns the JSON content; raises ValueError on failure.
     - Any call using the mock provider sets ledger.mock_provider_used = True.
     """
+    if ledger is None:
+        ledger = UsageLedger()
+    cdir = Path(cache_dir) if cache_dir is not None else Path("runs/cache")
+
     provider_name = os.environ.get(provider_env, "mock").lower()
     model = os.environ.get(model_env, "mock-model")
 
@@ -355,7 +360,7 @@ def call_llm(
 
     params = {"max_tokens": max_tokens, "temperature": temperature}
     key = _cache_key(model, messages, params)
-    cpath = _cache_path(cache_dir, key)
+    cpath = _cache_path(cdir, key)
 
     # Cache hit?
     cached = _load_cache(cpath)

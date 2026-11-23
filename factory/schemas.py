@@ -23,6 +23,7 @@ class TaskPlan(BaseModel):
     module: str
     behaviour_axis: str
     interaction_partner: str | None = None
+    title: str = ""
     description: str = ""
     target_symbols: list[str] = Field(default_factory=list)
 

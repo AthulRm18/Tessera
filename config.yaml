@@ -41,6 +41,12 @@ llm:
   max_tokens: 4096
   temperature: 0.2
 
+budget:
+  max_tokens_per_run: 200000
+  max_cost_per_run: 2.00
+  max_tokens_per_task: 50000
+  max_cost_per_task: 0.50
+
 output:
   runs_dir: "./runs"
   packages_dir: "./packages"
