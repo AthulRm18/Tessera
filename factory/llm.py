@@ -66,6 +66,7 @@ class BaseProvider:
         messages: list[dict[str, str]],
         max_tokens: int,
         temperature: float,
+        expect_json: bool = False,
     ) -> dict[str, Any]:
         """Return a dict with keys: content (str), input_tokens (int), output_tokens (int)."""
         raise NotImplementedError
@@ -75,7 +76,7 @@ class BaseProvider:
 class AnthropicProvider(BaseProvider):
     name = "anthropic"
 
-    def complete(self, model: str, messages: list[dict[str, str]], max_tokens: int, temperature: float) -> dict[str, Any]:
+    def complete(self, model: str, messages: list[dict[str, str]], max_tokens: int, temperature: float, expect_json: bool = False) -> dict[str, Any]:
         try:
             import anthropic  # type: ignore[import]
         except ImportError:
@@ -116,7 +117,7 @@ class AnthropicProvider(BaseProvider):
 class OpenAIProvider(BaseProvider):
     name = "openai"
 
-    def complete(self, model: str, messages: list[dict[str, str]], max_tokens: int, temperature: float) -> dict[str, Any]:
+    def complete(self, model: str, messages: list[dict[str, str]], max_tokens: int, temperature: float, expect_json: bool = False) -> dict[str, Any]:
         try:
             from openai import OpenAI  # type: ignore[import]
         except ImportError:
@@ -127,12 +128,15 @@ class OpenAIProvider(BaseProvider):
             raise RuntimeError("OPENAI_API_KEY (or LLM_API_KEY) not set in environment")
 
         client = OpenAI(api_key=key)
-        resp = client.chat.completions.create(
-            model=model,
-            messages=messages,  # type: ignore[arg-type]
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": messages,  # type: ignore[arg-type]
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if expect_json:
+            kwargs["response_format"] = {"type": "json_object"}
+        resp = client.chat.completions.create(**kwargs)
         usage = resp.usage
         return {
             "content": resp.choices[0].message.content or "",
@@ -147,7 +151,7 @@ class GeminiProvider(BaseProvider):
 
     name = "gemini"
 
-    def complete(self, model: str, messages: list[dict[str, str]], max_tokens: int, temperature: float) -> dict[str, Any]:
+    def complete(self, model: str, messages: list[dict[str, str]], max_tokens: int, temperature: float, expect_json: bool = False) -> dict[str, Any]:
         try:
             from google import genai  # type: ignore[import]
             from google.genai import types  # type: ignore[import]
@@ -171,11 +175,19 @@ class GeminiProvider(BaseProvider):
             elif m["role"] == "assistant":
                 contents.append(types.Content(role="model", parts=[types.Part(text=m["content"])]))
 
-        cfg = types.GenerateContentConfig(
-            max_output_tokens=max_tokens,
-            temperature=temperature,
-            system_instruction="\n\n".join(system_parts) if system_parts else None,
-        )
+        cfg_kwargs: dict[str, Any] = {
+            "max_output_tokens": max(max_tokens, 8192),
+            "temperature": temperature,
+            "system_instruction": "\n\n".join(system_parts) if system_parts else None,
+            "response_mime_type": "application/json" if expect_json else None,
+        }
+        # Disable thinking tokens for direct, complete structured output
+        try:
+            cfg_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+        except Exception:
+            pass
+
+        cfg = types.GenerateContentConfig(**cfg_kwargs)
 
         resp = client.models.generate_content(model=model, contents=contents, config=cfg)
         usage = resp.usage_metadata
@@ -192,7 +204,7 @@ class MockProvider(BaseProvider):
 
     name = "mock"
 
-    def complete(self, model: str, messages: list[dict[str, str]], max_tokens: int, temperature: float) -> dict[str, Any]:
+    def complete(self, model: str, messages: list[dict[str, str]], max_tokens: int, temperature: float, expect_json: bool = False) -> dict[str, Any]:
         # Return custom mock if set in environment, else default minimal response
         content = os.environ.get("LLM_MOCK_RESPONSE") or json.dumps({"mock": True, "message": "mock response for testing"})
         return {
@@ -402,7 +414,7 @@ def call_llm(
         raw = cached["content"]
     else:
         t0 = time.monotonic()
-        result = provider.complete(model, messages, max_tokens, temperature)
+        result = provider.complete(model, messages, max_tokens, temperature, expect_json=expect_json)
         duration = time.monotonic() - t0
 
         raw = result["content"]
