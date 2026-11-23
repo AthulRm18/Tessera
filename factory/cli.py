@@ -72,19 +72,20 @@ def run(
 def verify(
     package_path: Path = typer.Argument(..., help="Path to a Harbor task package folder"),
     config: str = typer.Option("config.yaml", help="Path to config.yaml"),
+    quick: bool = typer.Option(False, "--quick", help="Skip 3-run determinism check (1 run only)"),
 ) -> None:
-    """Clean-room re-validation of one Harbor task package (G1–G4, G6)."""
-    _load(config)
-    console.print(f"[bold]tessera verify[/bold] — {package_path}")
+    """Clean-room re-validation of one Harbor task package (G1–G4)."""
+    cfg = _load(config)
     if not package_path.exists():
         console.print(f"[red]✗ Package path does not exist: {package_path}[/red]")
         raise typer.Exit(code=1)
-    required = ["instruction.md", "task.toml", "solution/solve.sh", "tests/test.sh"]
-    for fname in required:
-        exists = (package_path / fname).exists()
-        mark = "[green]✓[/green]" if exists else "[red]✗[/red]"
-        console.print(f"  {mark} {fname}")
-    console.print("[yellow]⏳ Full verify not yet built.[/yellow]")
+
+    from factory.verify import verify_package
+
+    res = verify_package(package_path, cfg, check_determinism=not quick)
+    if not res.passed:
+        console.print(f"[red bold]✗ Verification failed for {package_path.name}[/red bold]")
+        raise typer.Exit(code=1)
 
 
 # ── report ─────────────────────────────────────────────────────────────────

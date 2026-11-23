@@ -43,27 +43,31 @@ packages/
 
 ## task.toml fields (Harbor)
 
-> Fields quoted from Harbor docs. Mark any field as [UNVERIFIED] if not confirmed from docs.
-
 ```toml
-schema_version = "..."          # Harbor schema version — MUST be exact; read from docs, never guess
+schema_version = "1.4"
 
 [task]
-name = "..."                    # Short task name
-description = "..."             # One-line description
+name = "<task_id>"             # Short task identifier
+description = "..."             # Task summary
 
-[environment]
-docker_image = "..."            # Pre-built image (omit environment/ folder when set)
-# OR use environment/Dockerfile instead
+authors = [
+  { name = "Tessera Factory", email = "tessera@frontier-ai.org" }
+]
+
+[metadata]
+category = "software-engineering"
+difficulty_explanation = "..."
 
 [verifier]
-# Verifier writes a numeric reward to /logs/verifier/reward.txt (or reward.json)
-# Exact fields TBD from docs — [UNVERIFIED beyond reward file path]
-```
+timeout_sec = 120.0
 
-> **[UNVERIFIED]:** Exact `schema_version` value, full set of `[task]`, `[environment]`, `[verifier]`
-> fields — must be read from https://docs.harborframework.com before packager is finalised.
-> Do not write packager code that guesses these fields.
+[agent]
+timeout_sec = 120.0
+
+[environment]
+network_mode = "allowlist"
+# docker_image = "..."          # Set when pre-built image exists
+```
 
 ---
 
