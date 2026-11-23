@@ -22,6 +22,29 @@ from rich.console import Console
 
 console = Console()
 
+
+def load_dotenv_if_present(env_path: Path | str = ".env") -> None:
+    """Load key-value pairs from .env into os.environ if not already set."""
+    p = Path(env_path)
+    if not p.is_file():
+        return
+    try:
+        for line in p.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" in line:
+                k, _, v = line.partition("=")
+                k = k.strip()
+                v = v.strip().strip("'\"")
+                if k and k not in os.environ:
+                    os.environ[k] = v
+    except Exception:
+        pass
+
+
+load_dotenv_if_present()
+
 # ---------------------------------------------------------------------------
 # Provider registry
 # ---------------------------------------------------------------------------
