@@ -9,7 +9,7 @@
 repo:
   path: "./_standin_pyjwt"
   base_ref: "16231abfd1d8eab4953e8779b3017b859c88565e"
-  setup_cmd: "pip install -e ."
+  setup_cmd: "python -c \"import jwt; print('jwt ready')\""
   test_cmd: "python -m pytest -v --tb=short"
   result_format: "pytest"
   timeout_s: 120
