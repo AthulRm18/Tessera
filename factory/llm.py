@@ -443,15 +443,28 @@ def call_llm(
         # Remove opening fence (```json or ```)
         lines = lines[1:] if lines[0].startswith("```") else lines
         # Remove closing fence
-        if lines and lines[-1].startswith("```"):
+        if lines and lines[-1].strip().startswith("```"):
             lines = lines[:-1]
-        text = "\n".join(lines)
+        text = "\n".join(lines).strip()
 
+    # Attempt 1: strict=False tolerates unescaped control characters in JSON strings
     try:
-        return json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"LLM response was not valid JSON.\n"
-            f"Model: {model}\nPrompt hash: {key[:12]}\n"
-            f"Raw response (first 500 chars): {raw[:500]}"
-        ) from exc
+        return json.loads(text, strict=False)
+    except json.JSONDecodeError:
+        pass
+
+    # Attempt 2: Extract substring between first '{' and last '}'
+    first_brace = text.find("{")
+    last_brace = text.rfind("}")
+    if first_brace != -1 and last_brace > first_brace:
+        candidate = text[first_brace : last_brace + 1]
+        try:
+            return json.loads(candidate, strict=False)
+        except json.JSONDecodeError:
+            pass
+
+    raise ValueError(
+        f"LLM response was not valid JSON.\n"
+        f"Model: {model}\nPrompt hash: {key[:12]}\n"
+        f"Raw response (first 500 chars): {raw[:500]}"
+    )
