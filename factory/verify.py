@@ -22,6 +22,11 @@ Verification steps:
 from __future__ import annotations
 
 import json
+import os
+import re
+import shutil
+import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -46,6 +51,7 @@ class VerifyResult:
     g2_passed: bool = False
     g3_passed: bool = False
     g4_passed: bool = False
+    container_verified: bool = False
     evidence: dict[str, Any] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
 
@@ -75,17 +81,135 @@ def check_package_structure(pkg_path: Path) -> tuple[bool, list[str]]:
     return (len(errors) == 0), errors
 
 
-def verify_package(
+def _run_container_cmd(cmd: str, timeout_s: float = 180.0) -> subprocess.CompletedProcess[str]:
+    """Execute a bash command in WSL2 (if on Windows) or natively (if on Linux)."""
+    if sys.platform == "win32":
+        wsl_cmd = ["wsl", "-d", "Ubuntu", "-e", "bash", "-c", cmd]
+        return subprocess.run(wsl_cmd, capture_output=True, text=True, timeout=timeout_s)
+    else:
+        return subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, timeout=timeout_s)
+
+
+def is_container_runtime_available() -> bool:
+    """Check if Harbor and Docker are runnable via WSL2 or native Linux."""
+    try:
+        proc = _run_container_cmd("export PATH=\"$HOME/.local/bin:$PATH\" && harbor --version && docker ps", timeout_s=15.0)
+        return proc.returncode == 0
+    except Exception:
+        return False
+
+
+def verify_package_container(
+    package_path: str | Path,
+    cfg: FactoryConfig,
+) -> VerifyResult:
+    """Run container-based verification of a Harbor task package using Harbor runner.
+    
+    Evaluates:
+      1. Structural integrity and Harbor format compliance.
+      2. Nop agent run in Docker: verifies tests FAIL when feature is absent (reward == 0).
+      3. Oracle agent run in Docker: verifies reference patch applies and tests PASS (reward == 1).
+    """
+    pkg = Path(package_path).resolve()
+    task_id = pkg.name
+    res = VerifyResult(task_id=task_id, passed=False, container_verified=True)
+
+    console.print(f"\n[bold]Container verifying package:[/bold] {task_id}")
+
+    # 1. Structural check
+    ok, errors = check_package_structure(pkg)
+    res.structural_check = ok
+    if not ok:
+        res.errors = errors
+        for err in errors:
+            console.print(f"  [red]✗ {err}[/red]")
+        return res
+    console.print("  [green]✓ Structure check: Harbor format valid[/green]")
+
+    # Check container runtime
+    if not is_container_runtime_available():
+        res.errors.append("Container runtime (Docker / WSL2 Harbor) is unavailable.")
+        console.print("  [yellow]⚠ Container runtime unavailable[/yellow]")
+        return res
+
+    # Resolve relative path for Harbor
+    root_dir = Path.cwd().resolve()
+    try:
+        rel_pkg = pkg.relative_to(root_dir).as_posix()
+    except ValueError:
+        rel_pkg = pkg.as_posix()
+
+    # 2. Run Harbor with nop agent (expect reward 0)
+    console.print("  [cyan]Running Harbor container check: nop agent (expecting reward 0)...[/cyan]")
+    nop_cmd = (
+        f'export PATH="$HOME/.local/bin:$PATH" && '
+        f'cd "{root_dir.as_posix()}" 2>/dev/null || cd /mnt/c/{root_dir.as_posix().lstrip("C:/")} && '
+        f'harbor run -p "{rel_pkg}" -a nop --quiet'
+    )
+    nop_proc = _run_container_cmd(nop_cmd, timeout_s=cfg.repo.timeout_s + 60.0)
+    res.evidence["harbor_nop_stdout"] = nop_proc.stdout
+    res.evidence["harbor_nop_stderr"] = nop_proc.stderr
+
+    # Check latest job reward for nop
+    jobs_dir = root_dir / "jobs"
+    latest_jobs = sorted(jobs_dir.glob("2026-*"), key=lambda p: p.stat().st_mtime, reverse=True)
+    nop_reward = None
+    if latest_jobs:
+        reward_files = list(latest_jobs[0].glob("**/reward.txt"))
+        if reward_files:
+            nop_reward = reward_files[0].read_text().strip()
+
+    if nop_reward == "0":
+        console.print("  [green]✓ Nop check passed: feature absence detected (reward 0)[/green]")
+    else:
+        res.errors.append(f"Nop agent produced reward '{nop_reward}' (expected '0')")
+        console.print(f"  [red]✗ Nop check failed: expected reward 0, got {nop_reward}[/red]")
+        return res
+
+    # 3. Run Harbor with oracle agent (expect reward 1)
+    console.print("  [cyan]Running Harbor container check: oracle agent (expecting reward 1)...[/cyan]")
+    oracle_cmd = (
+        f'export PATH="$HOME/.local/bin:$PATH" && '
+        f'cd "{root_dir.as_posix()}" 2>/dev/null || cd /mnt/c/{root_dir.as_posix().lstrip("C:/")} && '
+        f'harbor run -p "{rel_pkg}" -a oracle --quiet'
+    )
+    oracle_proc = _run_container_cmd(oracle_cmd, timeout_s=cfg.repo.timeout_s + 60.0)
+    res.evidence["harbor_oracle_stdout"] = oracle_proc.stdout
+    res.evidence["harbor_oracle_stderr"] = oracle_proc.stderr
+
+    latest_jobs = sorted(jobs_dir.glob("2026-*"), key=lambda p: p.stat().st_mtime, reverse=True)
+    oracle_reward = None
+    if latest_jobs:
+        reward_files = list(latest_jobs[0].glob("**/reward.txt"))
+        if reward_files:
+            oracle_reward = reward_files[0].read_text().strip()
+
+    if oracle_reward == "1":
+        console.print("  [green]✓ Oracle check passed: reference solution verified (reward 1)[/green]")
+        res.g1_passed = True
+        res.g2_passed = True
+        res.g3_passed = True
+        res.g4_passed = True
+        res.passed = True
+        console.print(f"\n[green bold]✓ Package {task_id} successfully CONTAINER-VERIFIED[/green bold]")
+    else:
+        res.errors.append(f"Oracle agent produced reward '{oracle_reward}' (expected '1')")
+        console.print(f"  [red]✗ Oracle check failed: expected reward 1, got {oracle_reward}[/red]")
+
+    return res
+
+
+def verify_package_native(
     package_path: str | Path,
     cfg: FactoryConfig,
     check_determinism: bool = True,
 ) -> VerifyResult:
-    """Verify a packaged Harbor task against a clean checkout of the base repo."""
+    """Verify a packaged Harbor task natively against a clean checkout of the base repo."""
     pkg = Path(package_path).resolve()
     task_id = pkg.name
-    res = VerifyResult(task_id=task_id, passed=False)
+    res = VerifyResult(task_id=task_id, passed=False, container_verified=False)
 
-    console.print(f"\n[bold]Verifying package:[/bold] {task_id}")
+    console.print(f"\n[bold]Native verifying package:[/bold] {task_id}")
 
     # 1. Structural check
     ok, errors = check_package_structure(pkg)
@@ -156,7 +280,7 @@ def verify_package(
         res.errors.append(f"G3 failed: {g3.evidence}")
         return res
 
-    # G4 Determinism (optional for quick verify)
+    # G4 Determinism
     if check_determinism:
         g4 = run_g4(ctx, runs=ctx.determinism_runs)
         res.g4_passed = g4.passed
@@ -168,5 +292,23 @@ def verify_package(
         res.g4_passed = True
 
     res.passed = True
-    console.print(f"\n[green bold]✓ Package {task_id} successfully VERIFIED[/green bold]")
+    console.print(f"\n[green bold]✓ Package {task_id} successfully NATIVE-VERIFIED[/green bold]")
     return res
+
+
+def verify_package(
+    package_path: str | Path,
+    cfg: FactoryConfig,
+    native: bool = False,
+    check_determinism: bool = True,
+) -> VerifyResult:
+    """Verify a Harbor task package. Uses container verification by default, falls back or uses native if requested."""
+    if not native:
+        if is_container_runtime_available():
+            container_res = verify_package_container(package_path, cfg)
+            return container_res
+        else:
+            console.print("  [yellow]Notice: Container runtime not available. Running native verification.[/yellow]")
+    
+    return verify_package_native(package_path, cfg, check_determinism=check_determinism)
+

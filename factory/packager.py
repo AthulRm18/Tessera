@@ -42,11 +42,12 @@ def generate_task_toml(
 ) -> str:
     """Generate task.toml content matching Harbor schema_version 1.4."""
     desc = (description or title).replace('"', '\\"')
+    task_name = task_id if "/" in task_id else f"tessera/{task_id}"
     lines = [
         f'schema_version = "{HARBOR_SCHEMA_VERSION}"',
         "",
         "[task]",
-        f'name = "{task_id}"',
+        f'name = "{task_name}"',
         f'description = "{desc}"',
         "authors = [",
         '  { name = "Tessera Factory", email = "tessera@frontier-ai.org" }',
@@ -58,6 +59,7 @@ def generate_task_toml(
         "",
         "[verifier]",
         f"timeout_sec = {timeout_sec}",
+        'environment_mode = "shared"',
         "",
         "[agent]",
         f"timeout_sec = {timeout_sec}",
@@ -108,8 +110,14 @@ PATCH_FILE="$SCRIPT_DIR/{patch_filename}"
 
 if [ -f "$PATCH_FILE" ]; then
     echo "Applying reference patch..."
-    git apply "$PATCH_FILE"
-    echo "Reference patch applied successfully."
+    if git apply "$PATCH_FILE" 2>/dev/null; then
+        echo "Reference patch applied successfully with git apply."
+    elif patch -p1 < "$PATCH_FILE"; then
+        echo "Reference patch applied successfully with patch."
+    else
+        echo "Error: Failed to apply reference patch." >&2
+        exit 1
+    fi
 else
     echo "Error: Patch file $PATCH_FILE not found." >&2
     exit 1
@@ -137,10 +145,11 @@ def package_task(
     pkg_dir = Path(output_dir) / task_id
     pkg_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. instruction.md (shown to agent / solver)
-    (pkg_dir / "instruction.md").write_text(requirements_md, encoding="utf-8")
+    # 1. instruction.md (shown to agent / solver) - LF normalized
+    with open(pkg_dir / "instruction.md", "w", encoding="utf-8", newline="\n") as f:
+        f.write(requirements_md.replace("\r\n", "\n"))
 
-    # 2. task.toml (Harbor configuration)
+    # 2. task.toml (Harbor configuration) - LF normalized
     toml_content = generate_task_toml(
         task_id=task_id,
         title=metadata.title,
@@ -148,44 +157,55 @@ def package_task(
         docker_image=docker_image,
         timeout_sec=timeout_sec,
     )
-    (pkg_dir / "task.toml").write_text(toml_content, encoding="utf-8")
+    with open(pkg_dir / "task.toml", "w", encoding="utf-8", newline="\n") as f:
+        f.write(toml_content.replace("\r\n", "\n"))
 
     # 3. environment/ (if no docker_image and Dockerfile provided)
     if dockerfile_content:
         env_dir = pkg_dir / "environment"
         env_dir.mkdir(exist_ok=True)
-        (env_dir / "Dockerfile").write_text(dockerfile_content, encoding="utf-8")
+        with open(env_dir / "Dockerfile", "w", encoding="utf-8", newline="\n") as f:
+            f.write(dockerfile_content.replace("\r\n", "\n"))
 
-    # 4. solution/
+    # 4. solution/ - LF normalized
     sol_dir = pkg_dir / "solution"
     sol_dir.mkdir(exist_ok=True)
-    (sol_dir / "solve.sh").write_text(generate_solve_sh("reference.patch"), encoding="utf-8")
-    shutil.copy2(str(patch_path), str(sol_dir / "reference.patch"))
+    with open(sol_dir / "solve.sh", "w", encoding="utf-8", newline="\n") as f:
+        f.write(generate_solve_sh("reference.patch").replace("\r\n", "\n"))
+    # Copy and normalize patch file
+    patch_text = Path(patch_path).read_text(encoding="utf-8", errors="replace")
+    with open(sol_dir / "reference.patch", "w", encoding="utf-8", newline="\n") as f:
+        f.write(patch_text.replace("\r\n", "\n"))
 
-    # 5. tests/
+    # 5. tests/ - LF normalized
     tests_dir = pkg_dir / "tests"
     tests_dir.mkdir(exist_ok=True)
-    (tests_dir / "test.sh").write_text(generate_test_sh(test_cmd), encoding="utf-8")
+    with open(tests_dir / "test.sh", "w", encoding="utf-8", newline="\n") as f:
+        f.write(generate_test_sh(test_cmd).replace("\r\n", "\n"))
 
     feature_dir = tests_dir / "feature"
     feature_dir.mkdir(exist_ok=True)
     for p in feature_test_paths:
         src = Path(p)
         if src.is_file():
-            shutil.copy2(str(src), str(feature_dir / src.name))
+            content = src.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n")
+            with open(feature_dir / src.name, "w", encoding="utf-8", newline="\n") as f:
+                f.write(content)
         elif src.is_dir():
-            for item in src.glob("*.py"):
-                shutil.copy2(str(item), str(feature_dir / item.name))
-            for item in src.glob("*.js"):
-                shutil.copy2(str(item), str(feature_dir / item.name))
+            for item in list(src.glob("*.py")) + list(src.glob("*.js")):
+                content = item.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n")
+                with open(feature_dir / item.name, "w", encoding="utf-8", newline="\n") as f:
+                    f.write(content)
 
-    # 6. tessera/ (evidence & metadata)
+    # 6. tessera/ (evidence & metadata) - LF normalized
     tessera_dir = pkg_dir / "tessera"
     tessera_dir.mkdir(exist_ok=True)
-    with open(tessera_dir / "task_metadata.json", "w", encoding="utf-8") as f:
+    with open(tessera_dir / "task_metadata.json", "w", encoding="utf-8", newline="\n") as f:
         json.dump(metadata.model_dump(), f, indent=2)
-    with open(tessera_dir / "validation_report.json", "w", encoding="utf-8") as f:
+        f.write("\n")
+    with open(tessera_dir / "validation_report.json", "w", encoding="utf-8", newline="\n") as f:
         json.dump(validation_report.model_dump(), f, indent=2)
+        f.write("\n")
 
     console.print(f"  [green]✓ Packaged Harbor task:[/green] [cyan]{pkg_dir}[/cyan]")
     return pkg_dir

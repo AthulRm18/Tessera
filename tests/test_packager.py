@@ -25,7 +25,7 @@ def test_generate_task_toml() -> None:
         timeout_sec=90.0,
     )
     assert f'schema_version = "{HARBOR_SCHEMA_VERSION}"' in content
-    assert 'name = "task_001_test"' in content
+    assert 'name = "tessera/task_001_test"' in content
     assert 'category = "software-engineering"' in content
     assert "timeout_sec = 90.0" in content
 

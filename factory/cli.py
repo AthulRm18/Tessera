@@ -73,8 +73,12 @@ def verify(
     package_path: Path = typer.Argument(..., help="Path to a Harbor task package folder"),
     config: str = typer.Option("config.yaml", help="Path to config.yaml"),
     quick: bool = typer.Option(False, "--quick", help="Skip 3-run determinism check (1 run only)"),
+    native: bool = typer.Option(False, "--native", help="Run native verification instead of container verification"),
 ) -> None:
-    """Clean-room re-validation of one Harbor task package (G1–G4)."""
+    """Clean-room re-validation of one Harbor task package (G1–G4).
+    
+    Uses container verification by default; use --native for local worktree verification.
+    """
     cfg = _load(config)
     if not package_path.exists():
         console.print(f"[red]✗ Package path does not exist: {package_path}[/red]")
@@ -82,7 +86,7 @@ def verify(
 
     from factory.verify import verify_package
 
-    res = verify_package(package_path, cfg, check_determinism=not quick)
+    res = verify_package(package_path, cfg, native=native, check_determinism=not quick)
     if not res.passed:
         console.print(f"[red bold]✗ Verification failed for {package_path.name}[/red bold]")
         raise typer.Exit(code=1)

@@ -182,23 +182,31 @@ class MockProvider(BaseProvider):
 # Cost estimates (USD per 1K tokens — update when official rates confirmed)
 # ---------------------------------------------------------------------------
 
-_COST_PER_1K: dict[str, dict[str, float]] = {
-    # input, output  (USD per 1K tokens — update when official rates confirmed)
-    "claude-sonnet-4-20250514":  {"input": 0.003,   "output": 0.015},
-    "claude-opus-4-20250514":    {"input": 0.015,   "output": 0.075},
-    "gpt-4o":                    {"input": 0.005,   "output": 0.015},
-    "gpt-4o-mini":               {"input": 0.00015, "output": 0.0006},
-    # Gemini pricing (approximate as of Nov 2026)
+# ---------------------------------------------------------------------------
+# Estimated cost rates (USD per 1K tokens)
+# Source: Public pricing pages as of November 2026 (ai.google.dev/pricing,
+# docs.anthropic.com/en/docs/pricing). All computed costs are estimates only.
+# ---------------------------------------------------------------------------
+
+_ESTIMATED_COST_PER_1K: dict[str, dict[str, float]] = {
+    # Anthropic Claude (source: anthropic.com/pricing, Nov 2026)
+    "claude-sonnet-4-20250514":  {"input": 0.003,    "output": 0.015},
+    "claude-opus-4-20250514":    {"input": 0.015,    "output": 0.075},
+    # OpenAI (source: openai.com/pricing, Nov 2026)
+    "gpt-4o":                    {"input": 0.005,    "output": 0.015},
+    "gpt-4o-mini":               {"input": 0.00015,  "output": 0.0006},
+    # Google Gemini (source: ai.google.dev/pricing, Nov 2026; subject to free tier)
     "gemini-2.0-flash":          {"input": 0.000075, "output": 0.0003},
     "gemini-2.0-flash-lite":     {"input": 0.00001,  "output": 0.00004},
     "gemini-1.5-pro":            {"input": 0.00125,  "output": 0.005},
     "gemini-1.5-flash":          {"input": 0.000075, "output": 0.0003},
-    "default":                   {"input": 0.003,   "output": 0.015},
+    "default":                   {"input": 0.003,    "output": 0.015},
 }
 
 
 def _estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
-    rates = _COST_PER_1K.get(model, _COST_PER_1K["default"])
+    """Compute estimated cost in USD based on public pricing estimates."""
+    rates = _ESTIMATED_COST_PER_1K.get(model, _ESTIMATED_COST_PER_1K["default"])
     return (input_tokens / 1000) * rates["input"] + (output_tokens / 1000) * rates["output"]
 
 
