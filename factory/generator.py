@@ -246,6 +246,8 @@ def generate_implementation_and_tests(
     if patch.startswith("```"):
         lines = patch.splitlines()
         patch = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
+    if patch and not patch.endswith("\n"):
+        patch += "\n"
 
     # Save artifacts
     patch_file.write_text(patch, encoding="utf-8")
@@ -301,6 +303,8 @@ def repair_task(
     if new_patch.startswith("```"):
         lines = new_patch.splitlines()
         new_patch = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
+    if new_patch and not new_patch.endswith("\n"):
+        new_patch += "\n"
 
     new_test = data.get("test_code", prev_test)
 
@@ -383,9 +387,10 @@ def generate_and_validate_task(
         if not g1.passed:
             if repairs < max_repairs:
                 repairs += 1
+                evidence_str = str(g1.evidence) if not isinstance(g1.evidence, dict) else f"{g1.evidence.get('stdout', '')} {g1.evidence.get('stderr', '')}"
                 patch_text, test_code = repair_task(
                     plan, requirements_md, "G1 (Clean Apply)",
-                    f"git apply rejected patch: {g1.evidence.get('stdout', '')} {g1.evidence.get('stderr', '')}",
+                    f"git apply rejected patch: {evidence_str}",
                     patch_text, test_code, test_filename, cfg, ledger, task_dir, repairs
                 )
                 continue
@@ -400,9 +405,10 @@ def generate_and_validate_task(
         if not g2.passed:
             if repairs < max_repairs:
                 repairs += 1
-                base_info = f"Base tests on unpatched: {g2.evidence.get('base_passed')} passed, {g2.evidence.get('base_failed')} failed."
-                patch_info = f"Patched tests: {g2.evidence.get('patched_passed')} passed, {g2.evidence.get('patched_failed')} failed."
-                repair_msg = f"Fail-to-pass gate failed. {base_info} {patch_info}"
+                evidence_str = str(g2.evidence) if not isinstance(g2.evidence, dict) else str(g2.evidence)
+                base_info = f"Base tests on unpatched: {len(getattr(g2, 'base_failed', []))} failed."
+                patch_info = f"Patched tests: {len(getattr(g2, 'patched_passed', []))} passed."
+                repair_msg = f"Fail-to-pass gate failed. {evidence_str} {base_info} {patch_info}"
                 patch_text, test_code = repair_task(
                     plan, requirements_md, "G2 (Fail-to-Pass)",
                     repair_msg, patch_text, test_code, test_filename, cfg, ledger, task_dir, repairs
@@ -419,7 +425,8 @@ def generate_and_validate_task(
         if not g3.passed:
             if repairs < max_repairs:
                 repairs += 1
-                repair_msg = f"Regression detected: {g3.evidence.get('n_new_failures')} tests failed after patch."
+                evidence_str = str(g3.evidence) if not isinstance(g3.evidence, dict) else str(g3.evidence)
+                repair_msg = f"Regression detected: {evidence_str}"
                 patch_text, test_code = repair_task(
                     plan, requirements_md, "G3 (No Regressions)",
                     repair_msg, patch_text, test_code, test_filename, cfg, ledger, task_dir, repairs
