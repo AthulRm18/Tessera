@@ -9,8 +9,8 @@
 repo:
   path: "./_standin_validatorjs"
   base_ref: "9ff342479591ca5a43cb30000195bcf55c1bbed9"
-  setup_cmd: "npm install"
-  test_cmd: "npm test"
+  setup_cmd: "npm run build"
+  test_cmd: "npx mocha --require @babel/register --reporter spec --recursive"
   result_format: "mocha"
   timeout_s: 120
   docker_image: ""  # set after first build

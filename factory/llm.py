@@ -58,9 +58,9 @@ class AnthropicProvider(BaseProvider):
         except ImportError:
             raise RuntimeError("anthropic package not installed; run: pip install anthropic")
 
-        key = os.environ.get("LLM_API_KEY", "")
+        key = os.environ.get("ANTHROPIC_API_KEY", os.environ.get("LLM_API_KEY", ""))
         if not key:
-            raise RuntimeError("LLM_API_KEY not set in environment")
+            raise RuntimeError("ANTHROPIC_API_KEY (or LLM_API_KEY) not set in environment")
 
         client = anthropic.Anthropic(api_key=key)
         # Separate system message if present
@@ -99,9 +99,9 @@ class OpenAIProvider(BaseProvider):
         except ImportError:
             raise RuntimeError("openai package not installed; run: pip install openai")
 
-        key = os.environ.get("LLM_API_KEY", "")
+        key = os.environ.get("OPENAI_API_KEY", os.environ.get("LLM_API_KEY", ""))
         if not key:
-            raise RuntimeError("LLM_API_KEY not set in environment")
+            raise RuntimeError("OPENAI_API_KEY (or LLM_API_KEY) not set in environment")
 
         client = OpenAI(api_key=key)
         resp = client.chat.completions.create(
@@ -296,6 +296,7 @@ class UsageLedger:
             "total_input_tokens": self.total_input_tokens,
             "total_output_tokens": self.total_output_tokens,
             "total_cost_usd": round(self.total_cost_usd, 6),
+            "estimated_cost_usd": round(self.total_cost_usd, 6),
             "entries": self._entries,
         }
         with open(self.ledger_path, "w", encoding="utf-8") as f:
@@ -309,6 +310,7 @@ class UsageLedger:
             "total_input_tokens": self.total_input_tokens,
             "total_output_tokens": self.total_output_tokens,
             "total_cost_usd": round(self.total_cost_usd, 6),
+            "estimated_cost_usd": round(self.total_cost_usd, 6),
         }
 
     @property
