@@ -28,6 +28,7 @@ packages/
 # Target repos (supplied separately; never modify in place)
 target_repo/
 target_repo_*/
+_standin_*/
 
 # Git worktrees used by pipeline (tempdir, cleaned up after each task)
 *.worktree

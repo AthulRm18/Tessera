@@ -119,6 +119,51 @@ class OpenAIProvider(BaseProvider):
 
 
 @_register
+class GeminiProvider(BaseProvider):
+    """Google Gemini via the official google-genai SDK (v2+)."""
+
+    name = "gemini"
+
+    def complete(self, model: str, messages: list[dict[str, str]], max_tokens: int, temperature: float) -> dict[str, Any]:
+        try:
+            from google import genai  # type: ignore[import]
+            from google.genai import types  # type: ignore[import]
+        except ImportError:
+            raise RuntimeError("google-genai package not installed; run: pip install google-genai")
+
+        key = os.environ.get("GEMINI_API_KEY", os.environ.get("LLM_API_KEY", ""))
+        if not key:
+            raise RuntimeError("GEMINI_API_KEY (or LLM_API_KEY) not set in environment")
+
+        client = genai.Client(api_key=key)
+
+        # Separate system message; convert roles: assistant -> model
+        system_parts: list[str] = []
+        contents: list[types.Content] = []
+        for m in messages:
+            if m["role"] == "system":
+                system_parts.append(m["content"])
+            elif m["role"] == "user":
+                contents.append(types.Content(role="user", parts=[types.Part(text=m["content"])]))
+            elif m["role"] == "assistant":
+                contents.append(types.Content(role="model", parts=[types.Part(text=m["content"])]))
+
+        cfg = types.GenerateContentConfig(
+            max_output_tokens=max_tokens,
+            temperature=temperature,
+            system_instruction="\n\n".join(system_parts) if system_parts else None,
+        )
+
+        resp = client.models.generate_content(model=model, contents=contents, config=cfg)
+        usage = resp.usage_metadata
+        return {
+            "content": resp.text or "",
+            "input_tokens": usage.prompt_token_count or 0 if usage else 0,
+            "output_tokens": usage.candidates_token_count or 0 if usage else 0,
+        }
+
+
+@_register
 class MockProvider(BaseProvider):
     """Test-only mock. Any run using this is excluded from real reports."""
 
@@ -138,12 +183,17 @@ class MockProvider(BaseProvider):
 # ---------------------------------------------------------------------------
 
 _COST_PER_1K: dict[str, dict[str, float]] = {
-    # input, output
-    "claude-sonnet-4-20250514": {"input": 0.003,  "output": 0.015},
-    "claude-opus-4-20250514":   {"input": 0.015,  "output": 0.075},
-    "gpt-4o":                   {"input": 0.005,  "output": 0.015},
-    "gpt-4o-mini":              {"input": 0.00015,"output": 0.0006},
-    "default":                  {"input": 0.003,  "output": 0.015},
+    # input, output  (USD per 1K tokens — update when official rates confirmed)
+    "claude-sonnet-4-20250514":  {"input": 0.003,   "output": 0.015},
+    "claude-opus-4-20250514":    {"input": 0.015,   "output": 0.075},
+    "gpt-4o":                    {"input": 0.005,   "output": 0.015},
+    "gpt-4o-mini":               {"input": 0.00015, "output": 0.0006},
+    # Gemini pricing (approximate as of Nov 2026)
+    "gemini-2.0-flash":          {"input": 0.000075, "output": 0.0003},
+    "gemini-2.0-flash-lite":     {"input": 0.00001,  "output": 0.00004},
+    "gemini-1.5-pro":            {"input": 0.00125,  "output": 0.005},
+    "gemini-1.5-flash":          {"input": 0.000075, "output": 0.0003},
+    "default":                   {"input": 0.003,   "output": 0.015},
 }
 
 

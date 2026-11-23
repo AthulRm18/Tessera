@@ -40,17 +40,12 @@ def profile(
 ) -> None:
     """Detect stack, run baseline tests, build repo map. Baseline MUST be green."""
     cfg = _load(config)
-    console.print("[bold]tessera profile[/bold]")
-    t = Table(show_header=False, box=None)
-    t.add_row("repo path",    cfg.repo.path)
-    t.add_row("base ref",     cfg.repo.base_ref)
-    t.add_row("setup cmd",    cfg.repo.setup_cmd or "(none)")
-    t.add_row("test cmd",     cfg.repo.test_cmd  or "(not set — required)")
-    t.add_row("docker image", cfg.repo.docker_image or "(not set — will build)")
-    t.add_row("result fmt",   cfg.repo.result_format)
-    t.add_row("timeout",      f"{cfg.repo.timeout_s}s")
-    console.print(t)
-    console.print("[yellow]⏳ repo.py not yet built — waiting for stand-in repo approval.[/yellow]")
+    from factory.repo import profile_repo, save_profile
+
+    prof = profile_repo(cfg)
+    out_dir = Path(cfg.output.runs_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    save_profile(prof, out_dir / "profile.json")
 
 
 # ── run ────────────────────────────────────────────────────────────────────

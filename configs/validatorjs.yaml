@@ -1,0 +1,49 @@
+# configs/validatorjs.yaml — stand-in repo 2: validator.js (JavaScript, MIT)
+# Repo: https://github.com/validatorjs/validator.js
+# Pinned commit: 9ff342479591ca5a43cb30000195bcf55c1bbed9
+# Baseline: 323 passing in 273ms (run 2026-11-23)
+#
+# To use: tessera profile --config configs/validatorjs.yaml
+# Requires: Node.js and npm installed.
+
+repo:
+  path: "./_standin_validatorjs"
+  base_ref: "9ff342479591ca5a43cb30000195bcf55c1bbed9"
+  setup_cmd: "npm install"
+  test_cmd: "npm test"
+  result_format: "mocha"
+  timeout_s: 120
+  docker_image: ""  # set after first build
+
+generation:
+  n_tasks: 6
+  enable_bugfix_axis: false
+  behaviour_axes:
+    - new_business_rule
+    - threshold_or_limit
+    - state_transition
+    - validation_and_error_policy
+    - ordering_or_priority
+    - interaction_between_features
+    - idempotency
+    - rounding_or_units
+  max_repairs: 2
+
+gates:
+  determinism_runs: 3
+  mutation_kill_threshold: 0.70
+  solver_attempts: 3
+  solver_model_env: "LLM_SOLVER_MODEL"
+
+llm:
+  provider_env: "LLM_PROVIDER"
+  model_env: "LLM_MODEL"
+  key_env: "GEMINI_API_KEY"
+  max_tokens: 4096
+  temperature: 0.2
+
+output:
+  runs_dir: "./runs/validatorjs"
+  packages_dir: "./packages/validatorjs"
+  samples_dir: "./samples"
+  cache_dir: "./runs/cache"
