@@ -77,6 +77,7 @@ def _check_distinctness_matrix(
                     test_cmd=cfg.repo.test_cmd,
                     result_format=cfg.repo.result_format,
                     timeout_s=cfg.repo.timeout_s,
+                    docker_image=cfg.repo.docker_image,
                 )
                 tr = _run_feature_tests(ctx, wt)
                 passed = tr.passed and tr.n_failed == 0
@@ -154,9 +155,15 @@ def run(
 
     ledger = UsageLedger(ledger_path=run_dir / "ledger.json")
 
-    # 1. Baseline verification on base repo
+    # 1. Baseline verification on base repo (inside Docker container when docker_image is configured)
     console.print("\n[bold]1. Verifying baseline tests & capturing pass_to_pass nodes...[/bold]")
-    baseline = run_tests(Path(cfg.repo.path), cfg.repo.test_cmd, cfg.repo.timeout_s, cfg.repo.result_format)
+    if cfg.repo.docker_image and cfg.repo.result_format == "pytest":
+        from factory.gates import _run_docker_pytest
+        from factory.repo import parse_test_output
+        rc_b, out_b, err_b = _run_docker_pytest(Path(cfg.repo.path), cfg.repo.docker_image, cfg.repo.test_cmd, cfg.repo.timeout_s)
+        baseline = parse_test_output(out_b + ("\n" + err_b if err_b.strip() else ""), rc_b, cfg.repo.result_format)
+    else:
+        baseline = run_tests(Path(cfg.repo.path), cfg.repo.test_cmd, cfg.repo.timeout_s, cfg.repo.result_format)
     if not baseline.passed:
         console.print(f"[red bold]✗ Baseline tests failed ({baseline.n_failed} failed)[/red bold]")
         raise typer.Exit(code=1)

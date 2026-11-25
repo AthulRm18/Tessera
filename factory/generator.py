@@ -600,6 +600,7 @@ def generate_and_validate_task(
             timeout_s=cfg.repo.timeout_s,
             determinism_runs=cfg.gates.determinism_runs,
             setup_cmd=cfg.repo.setup_cmd,
+            docker_image=docker_img,
         )
 
         # 1. G1: Clean Apply
@@ -761,6 +762,7 @@ def generate_and_validate_task(
         patch_text=patch_text,
         feature_test_path=task_dir / test_filename,
         timeout_s=cfg.repo.timeout_s,
+        docker_image=docker_img,
     )
     validation_report.gates["N1_upstream_novelty"] = n1.model_dump()
     if not n1.passed:

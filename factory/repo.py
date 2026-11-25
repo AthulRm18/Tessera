@@ -533,10 +533,10 @@ def capture_baseline_pass_to_pass(
     )
     if docker_image:
         if sys.platform == "win32":
-            cmd = f'wsl -d Ubuntu docker run --rm --network none {docker_image} python -c "{py_snippet}"'
+            args = ["wsl", "-d", "Ubuntu", "docker", "run", "--rm", "--network", "none", docker_image, "python", "-c", py_snippet]
         else:
-            cmd = f'docker run --rm --network none {docker_image} python -c "{py_snippet}"'
-        proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout_s)
+            args = ["docker", "run", "--rm", "--network", "none", docker_image, "python", "-c", py_snippet]
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=timeout_s)
         if proc.returncode == 0 and proc.stdout.strip():
             last_line = proc.stdout.strip().splitlines()[-1]
             return json.loads(last_line)

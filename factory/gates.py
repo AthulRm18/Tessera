@@ -55,6 +55,7 @@ class GateContext:
     timeout_s: int
     determinism_runs: int = 3
     setup_cmd: str = ""
+    docker_image: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -204,12 +205,53 @@ def run_g2(ctx: GateContext) -> G2Result:
     )
 
 
-def _run_feature_tests(ctx: GateContext, wt: Path) -> TestResult:
-    """Run the task's feature tests from within a worktree.
+def _to_wsl_path(win_path: Path) -> str:
+    p = win_path.resolve().as_posix()
+    if len(p) >= 2 and p[1] == ":":
+        return f"/mnt/{p[0].lower()}{p[2:]}"
+    return p
 
-    Sets PYTHONPATH to the worktree root so feature test imports resolve
-    against the worktree's code (not the original repo or test runner's sys.path).
-    """
+
+def _run_docker_pytest(wt: Path, docker_image: str, pytest_cmd: str, timeout_s: int, extra_mounts: list[tuple[Path, str]] | None = None) -> tuple[int, str, str]:
+    import subprocess
+    import sys
+
+    mounts = [(wt, "/app")]
+    if extra_mounts:
+        mounts.extend(extra_mounts)
+
+    if sys.platform == "win32":
+        args = ["wsl", "-d", "Ubuntu", "docker", "run", "--rm", "--network", "none"]
+        for host_p, cont_p in mounts:
+            args.extend(["-v", f"{_to_wsl_path(host_p)}:{cont_p}"])
+        args.extend(["-e", "PYTHONPATH=/app/src:/app", docker_image, "bash", "-c", pytest_cmd])
+    else:
+        args = ["docker", "run", "--rm", "--network", "none"]
+        for host_p, cont_p in mounts:
+            args.extend(["-v", f"{host_p.resolve()}:{cont_p}"])
+        args.extend(["-e", "PYTHONPATH=/app/src:/app", docker_image, "bash", "-c", pytest_cmd])
+
+    proc = subprocess.run(args, capture_output=True, text=True, timeout=timeout_s)
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def _run_feature_tests(ctx: GateContext, wt: Path) -> TestResult:
+    """Run the task's feature tests from within a worktree (in Docker if configured)."""
+    from factory.repo import parse_test_output, run_cmd as _run
+
+    if ctx.docker_image and ctx.result_format == "pytest":
+        # Mount each feature test file's parent directory under /tests_mount_i
+        mounts: list[tuple[Path, str]] = []
+        target_args: list[str] = []
+        for idx, p in enumerate(ctx.feature_test_paths):
+            abs_p = Path(p).resolve()
+            mounts.append((abs_p.parent, f"/tests_m{idx}"))
+            target_args.append(f"/tests_m{idx}/{abs_p.name}")
+        cmd = f"pytest {' '.join(target_args)} -v --tb=short --no-header --rootdir=/tests_m0 --import-mode=importlib"
+        rc, stdout, stderr = _run_docker_pytest(wt, ctx.docker_image, cmd, ctx.timeout_s, extra_mounts=mounts)
+        combined = stdout + ("\n" + stderr if stderr.strip() else "")
+        return parse_test_output(combined, rc, ctx.result_format)
+
     test_files = " ".join(f'"{p}"' for p in ctx.feature_test_paths)
     if ctx.result_format == "pytest":
         # --import-mode=importlib avoids sys.path conflicts; wt is the rootdir
@@ -225,7 +267,6 @@ def _run_feature_tests(ctx: GateContext, wt: Path) -> TestResult:
         cmd = ctx.test_cmd
         env = {"PYTHONPATH": str(wt)}
 
-    from factory.repo import parse_test_output, run_cmd as _run
     rc, stdout, stderr = _run(cmd, cwd=wt, timeout_s=ctx.timeout_s, env=env)
     combined = stdout + ("\n" + stderr if stderr.strip() else "")
     return parse_test_output(combined, rc, ctx.result_format)
@@ -243,9 +284,6 @@ def run_g3(ctx: GateContext, baseline: TestResult) -> G3Result:
     console.print("\n[bold]G3[/bold] no regressions")
 
     with _temp_worktree(ctx) as wt:
-        # Run setup first if needed
-        if ctx.setup_cmd:
-            run_cmd(ctx.setup_cmd, cwd=wt, timeout_s=ctx.timeout_s)
         # Apply patch
         ok, msg = apply_patch(ctx.patch_path, wt)
         if not ok:
@@ -254,8 +292,15 @@ def run_g3(ctx: GateContext, baseline: TestResult) -> G3Result:
                 evidence=f"Patch failed in G3 worktree: {msg}",
                 suite_before=baseline.to_dict(),
             )
-        # Run full suite
-        after = run_tests(wt, ctx.test_cmd, ctx.timeout_s, ctx.result_format)
+        # Run full suite (in container when docker_image set, else native)
+        if ctx.docker_image and ctx.result_format == "pytest":
+            from factory.repo import parse_test_output
+            rc, out, err = _run_docker_pytest(wt, ctx.docker_image, ctx.test_cmd, ctx.timeout_s)
+            after = parse_test_output(out + ("\n" + err if err.strip() else ""), rc, ctx.result_format)
+        else:
+            if ctx.setup_cmd:
+                run_cmd(ctx.setup_cmd, cwd=wt, timeout_s=ctx.timeout_s)
+            after = run_tests(wt, ctx.test_cmd, ctx.timeout_s, ctx.result_format)
 
     _print_test_result(after, "after patch")
 

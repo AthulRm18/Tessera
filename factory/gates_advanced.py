@@ -341,6 +341,7 @@ def run_n1_upstream_novelty(
     patch_text: str,
     feature_test_path: Path,
     timeout_s: int = 120,
+    docker_image: str = "",
 ) -> GateResult:
     """N1: Fetch upstream default branch, grep new symbols, and verify feature tests fail against it."""
     console.print("\n[bold]N1[/bold] upstream-novelty check")
@@ -392,11 +393,21 @@ def run_n1_upstream_novelty(
     upstream_tests_passed = False
     try:
         wt = create_worktree(repo_path, upstream_ref, "n1_wt", parent_dir=parent)
-        cmd = (
-            f'python -m pytest "{feature_test_path.resolve()}" -v --tb=short --no-header '
-            f'--rootdir={wt} --import-mode=importlib'
-        )
-        rc_t, out_t, err_t = run_cmd(cmd, cwd=wt, timeout_s=timeout_s, env={"PYTHONPATH": str(wt)})
+        if docker_image:
+            from factory.gates import _run_docker_pytest
+            rc_t, out_t, err_t = _run_docker_pytest(
+                wt,
+                docker_image,
+                f"pytest /tests_n1/{feature_test_path.name} -v --tb=short --no-header --rootdir=/tests_n1 --import-mode=importlib",
+                timeout_s,
+                extra_mounts=[(feature_test_path.resolve().parent, "/tests_n1")],
+            )
+        else:
+            cmd = (
+                f'python -m pytest "{feature_test_path.resolve()}" -v --tb=short --no-header '
+                f'--rootdir={wt} --import-mode=importlib'
+            )
+            rc_t, out_t, err_t = run_cmd(cmd, cwd=wt, timeout_s=timeout_s, env={"PYTHONPATH": str(wt)})
         upstream_tests_passed = (rc_t == 0)
     finally:
         if wt is not None:
