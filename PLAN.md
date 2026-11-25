@@ -10,12 +10,12 @@
 
 | Date Window | Target Milestones | Status |
 |---|---|:---:|
-| **25–26 Nov** | Official PDF spec recorded; `pallets/click` pinned at stable tag & Docker baseline approved; Harbor 0.25.x reality check; hand-built Click task passing `nop` 0.0 and `oracle` 1.0. | **IN PROGRESS** |
-| **27–29 Nov** | Planner & generator end-to-end on Click; first 2 generated tasks passing G1–G4. | Pending |
-| **30 Nov – 1 Dec** | Gates G5–G7, upstream-novelty check, behavioural distinctness; minimum 5 accepted tasks from Click. | Pending |
-| **2–3 Dec** | Scale run, full validation evidence (logs, mutation kill rates, solver results), fresh-machine test. | Pending |
-| **4 Dec** | Technical explanation (`docs/TECHNICAL_EXPLANATION.md`), 5-min walkthrough demo video, submission deck. | Pending |
-| **5 Dec** | Final submission package verification, tag `submission`, submit. | Pending |
+| **26–27 Nov** | Hardening (shallow pinned Dockerfile, package hygiene, stronger solver); planner & generator; first 2 generated tasks passing G1–G7, N1, and Harbor `nop`/`oracle`. | **IN PROGRESS** |
+| **28 Nov** | Complete G5–G7, N1 upstream-novelty, and behavioural distinctness matrix across tasks. | Pending |
+| **29–30 Nov** | Full scale run generating 7–8 candidates to yield at least 5 accepted tasks from `pallets/click`. | Pending |
+| **1–2 Dec** | Full validation evidence, deterministic `--replay` mode via committed secret-free LLM cache, fresh-machine test. | Pending |
+| **3–4 Dec** | Walkthrough demo video, submission slide deck, `docs/TECHNICAL_EXPLANATION.md`. | Pending |
+| **5 Dec** | Final verification checklist, tag commit `submission`, submit. | Pending |
 | **6 Dec** | Buffer / contingency day. | Pending |
 
 ---

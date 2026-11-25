@@ -50,6 +50,7 @@ class GatesConfig(BaseModel):
     determinism_runs: int = Field(default=3, ge=1)
     mutation_kill_threshold: float = Field(default=0.70, ge=0.0, le=1.0)
     solver_attempts: int = Field(default=3, ge=1)
+    solver_provider_env: str = "LLM_SOLVER_PROVIDER"
     # G7 uses a DIFFERENT model/session than the generator
     solver_model_env: str = "LLM_SOLVER_MODEL"
 
@@ -59,6 +60,7 @@ class LLMConfig(BaseModel):
 
     provider_env: str = "LLM_PROVIDER"
     model_env: str = "LLM_MODEL"
+    planner_model_env: str = "LLM_PLANNER_MODEL"
     key_env: str = "LLM_API_KEY"
     max_tokens: int = Field(default=4096, ge=256)
     temperature: float = Field(default=0.2, ge=0.0, le=2.0)

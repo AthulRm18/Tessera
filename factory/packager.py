@@ -1,23 +1,26 @@
 """Harbor format packager (v0.25.x compliant).
 
-Emits standard Harbor task directories:
+Emits clean Harbor task directories containing ONLY organizer-specified components
+and Harbor runner scripts:
   packages/<task_id>/
   ├── instruction.md         # ONLY file exposed to the evaluated AI
   ├── task.toml              # Harbor task configuration (schema_version = "1.4")
-  ├── environment/           # Self-contained Dockerfile building from base_commit
+  ├── environment/           # Hardened Dockerfile: shallow commit fetch, pinned deps
   │   └── Dockerfile
   ├── solution/              # Reference solution
   │   ├── solve.sh           # Executable script applying reference.patch cleanly
   │   └── reference.patch    # Unified diff patch
-  ├── tests/                 # Verifier scripts and SWE-bench JSON test splits
-  │   ├── test.sh            # Verifier script outputting reward to /logs/verifier/reward.txt
-  │   ├── grade.py           # Exact reward calculator (fail_to_pass + pass_to_pass)
-  │   ├── fail_to_pass.json  # Feature test node IDs (must FAIL on base, PASS on oracle)
-  │   ├── pass_to_pass.json  # Regression test node IDs (must PASS on base & oracle)
-  │   └── feature/           # Feature test files
-  └── tessera/               # Internal Tessera evidence (judges/evaluators)
-      ├── task_metadata.json
-      └── validation_report.json
+  └── tests/                 # Verifier scripts and SWE-bench JSON test splits
+      ├── test.sh            # Verifier script outputting reward to /logs/verifier/reward.txt
+      ├── grade.py           # Exact reward calculator (fail_to_pass + pass_to_pass)
+      ├── fail_to_pass.json  # Feature test node IDs (must FAIL on base, PASS on oracle)
+      ├── pass_to_pass.json  # Regression test node IDs (must PASS on base & oracle)
+      └── feature/           # Feature test files
+
+Internal Tessera evidence is written outside the package to evidence/<task_id>/:
+  evidence/<task_id>/
+  ├── task_metadata.json
+  └── validation_report.json
 """
 
 from __future__ import annotations
@@ -44,11 +47,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \\
     less \\
     && rm -rf /var/lib/apt/lists/*
 
-RUN git clone {repository} /app && \\
-    git checkout {base_commit}
+# Shallow fetch ONLY the pinned commit and remove remote so later upstream history is unavailable
+RUN git init && \\
+    git remote add origin {repository} && \\
+    git fetch --depth 1 origin {base_commit} && \\
+    git checkout FETCH_HEAD && \\
+    git remote remove origin
 
-RUN pip install --no-cache-dir -e . && \\
-    pip install --no-cache-dir pytest
+# Exact pip versions pinned from Click uv.lock at cf19179 (+ flit_core build backend)
+RUN pip install --no-cache-dir \\
+    flit_core==3.12.0 \\
+    iniconfig==2.3.0 \\
+    packaging==26.0 \\
+    pluggy==1.6.0 \\
+    pygments==2.20.0 \\
+    pytest==9.0.2 && \\
+    pip install --no-cache-dir --no-build-isolation --no-deps -e .
 """
 
 
@@ -296,6 +310,7 @@ def package_task(
     license_name: str = "BSD-3-Clause",
     fail_to_pass: list[str] | None = None,
     pass_to_pass: list[str] | None = None,
+    evidence_dir: str | Path = "evidence",
 ) -> Path:
     """Package an accepted task into a standard Harbor 0.25.x task directory.
 
@@ -376,17 +391,17 @@ def package_task(
                 with open(feature_dir / item.name, "w", encoding="utf-8", newline="\n") as f:
                     f.write(content)
 
-    # 6. tessera/ (evidence & metadata) - LF normalized
-    tessera_dir = pkg_dir / "tessera"
-    tessera_dir.mkdir(exist_ok=True)
-    with open(tessera_dir / "task_metadata.json", "w", encoding="utf-8", newline="\n") as f:
+    # 6. evidence/<task_id>/ (written outside package to keep Harbor directory clean)
+    ev_dir = Path(evidence_dir) / task_id
+    ev_dir.mkdir(parents=True, exist_ok=True)
+    with open(ev_dir / "task_metadata.json", "w", encoding="utf-8", newline="\n") as f:
         json.dump(metadata.model_dump(), f, indent=2)
         f.write("\n")
-    with open(tessera_dir / "validation_report.json", "w", encoding="utf-8", newline="\n") as f:
+    with open(ev_dir / "validation_report.json", "w", encoding="utf-8", newline="\n") as f:
         json.dump(validation_report.model_dump(), f, indent=2)
         f.write("\n")
 
-    console.print(f"  [green]✓ Packaged Harbor task:[/green] [cyan]{pkg_dir}[/cyan]")
+    console.print(f"  [green]✓ Packaged Harbor task:[/green] [cyan]{pkg_dir}[/cyan] (evidence: [dim]{ev_dir}[/dim])")
     return pkg_dir
 
 

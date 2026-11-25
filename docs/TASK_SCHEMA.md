@@ -26,12 +26,11 @@ packages/<task_id>/
     └── pass_to_pass.json   # SWE-bench style array of existing tests passing on both
 ```
 
-Alongside each package, Tessera maintains internal verification evidence:
+Alongside each package, Tessera stores internal verification evidence separately outside the Harbor package directory:
 ```
-packages/<task_id>/
-└── tessera/
-    ├── task_metadata.json      # Structured task metadata (module, axis, criteria, interface)
-    └── validation_report.json  # Comprehensive evidence across Gates G1–G7
+evidence/<task_id>/
+├── task_metadata.json      # Structured task metadata (module, axis, criteria, interface)
+└── validation_report.json  # Comprehensive evidence across Gates G1–G7, N1, and official Harbor passes
 ```
 
 ---
@@ -97,12 +96,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     less \
     && rm -rf /var/lib/apt/lists/*
 
-# Clone repository and checkout exact base_commit
-RUN git clone https://github.com/pallets/click.git /app && \
-    git checkout cf19179e8e2fd54c601378cec9e0d21bb12b6fb1
+# Shallow fetch ONLY the pinned commit and remove remote so later upstream history is unavailable
+RUN git init && \
+    git remote add origin https://github.com/pallets/click.git && \
+    git fetch --depth 1 origin cf19179e8e2fd54c601378cec9e0d21bb12b6fb1 && \
+    git checkout FETCH_HEAD && \
+    git remote remove origin
 
-# Install dependencies and package in editable mode
-RUN pip install --no-cache-dir -e . && pip install --no-cache-dir pytest
+# Exact pip versions pinned from Click uv.lock at cf19179 (+ flit_core build backend)
+RUN pip install --no-cache-dir \
+    flit_core==3.12.0 \
+    iniconfig==2.3.0 \
+    packaging==26.0 \
+    pluggy==1.6.0 \
+    pygments==2.20.0 \
+    pytest==9.0.2 && \
+    pip install --no-cache-dir --no-build-isolation --no-deps -e .
 ```
 
 ---

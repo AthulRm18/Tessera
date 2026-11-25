@@ -47,6 +47,7 @@ def test_generate_test_sh() -> None:
 
 def test_package_task_full(tmp_path: Path) -> None:
     out_dir = tmp_path / "packages"
+    ev_dir = tmp_path / "evidence"
     patch_file = tmp_path / "test.patch"
     patch_file.write_text("dummy patch content", encoding="utf-8")
     test_file = tmp_path / "test_feature.py"
@@ -68,6 +69,7 @@ def test_package_task_full(tmp_path: Path) -> None:
         metadata=meta,
         validation_report=report,
         test_cmd="pytest",
+        evidence_dir=ev_dir,
     )
 
     assert pkg_dir.exists()
@@ -77,8 +79,9 @@ def test_package_task_full(tmp_path: Path) -> None:
     assert (pkg_dir / "solution" / "reference.patch").exists()
     assert (pkg_dir / "tests" / "test.sh").exists()
     assert (pkg_dir / "tests" / "feature" / "test_feature.py").exists()
-    assert (pkg_dir / "tessera" / "task_metadata.json").exists()
-    assert (pkg_dir / "tessera" / "validation_report.json").exists()
+    assert not (pkg_dir / "tessera").exists()
+    assert (ev_dir / "task_001" / "task_metadata.json").exists()
+    assert (ev_dir / "task_001" / "validation_report.json").exists()
 
     # Structural check helper
     ok, errors = check_package_structure(pkg_dir)

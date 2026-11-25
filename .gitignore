@@ -24,6 +24,7 @@ venv/
 # Run artifacts (gitignored; samples/ is committed deliberately)
 runs/
 packages/
+evidence/
 jobs/
 scratch/
 temp_harbor_init/

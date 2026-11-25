@@ -29,11 +29,13 @@ generation:
 gates:
   determinism_runs: 3
   mutation_kill_threshold: 0.70
-  solver_attempts: 3
+  solver_attempts: 2
+  solver_provider_env: "LLM_SOLVER_PROVIDER"
   solver_model_env: "LLM_SOLVER_MODEL"
 
 llm:
   provider_env: "LLM_PROVIDER"
+  planner_model_env: "LLM_PLANNER_MODEL"
   model_env: "LLM_MODEL"
   key_env: "GEMINI_API_KEY"
   max_tokens: 8192

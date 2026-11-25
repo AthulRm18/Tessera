@@ -159,11 +159,11 @@ def verify_package_container(
         if reward_files:
             nop_reward = reward_files[0].read_text().strip()
 
-    if nop_reward == "0":
-        console.print("  [green]✓ Nop check passed: feature absence detected (reward 0)[/green]")
+    if nop_reward in ("0", "0.0"):
+        console.print(f"  [green]✓ Nop check passed: feature absence detected (reward {nop_reward})[/green]")
     else:
-        res.errors.append(f"Nop agent produced reward '{nop_reward}' (expected '0')")
-        console.print(f"  [red]✗ Nop check failed: expected reward 0, got {nop_reward}[/red]")
+        res.errors.append(f"Nop agent produced reward '{nop_reward}' (expected '0.0')")
+        console.print(f"  [red]✗ Nop check failed: expected reward 0.0, got {nop_reward}[/red]")
         return res
 
     # 3. Run Harbor with oracle agent (expect reward 1)
@@ -184,8 +184,8 @@ def verify_package_container(
         if reward_files:
             oracle_reward = reward_files[0].read_text().strip()
 
-    if oracle_reward == "1":
-        console.print("  [green]✓ Oracle check passed: reference solution verified (reward 1)[/green]")
+    if oracle_reward in ("1", "1.0"):
+        console.print(f"  [green]✓ Oracle check passed: reference solution verified (reward {oracle_reward})[/green]")
         res.g1_passed = True
         res.g2_passed = True
         res.g3_passed = True
@@ -221,8 +221,10 @@ def verify_package_native(
         return res
     console.print("  [green]✓ Structure check: Harbor format valid[/green]")
 
-    # 2. Load internal metadata if present
-    meta_path = pkg / "tessera" / "task_metadata.json"
+    # 2. Load internal metadata if present (evidence/<task_id>/ or legacy tessera/)
+    meta_path = Path("evidence") / task_id / "task_metadata.json"
+    if not meta_path.exists():
+        meta_path = pkg / "tessera" / "task_metadata.json"
     base_commit = cfg.repo.base_ref
     if meta_path.exists():
         with open(meta_path, encoding="utf-8") as f:

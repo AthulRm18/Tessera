@@ -512,3 +512,135 @@ def list_worktrees(repo_path: str | Path) -> list[str]:
         for line in stdout.splitlines()
         if line.startswith("worktree ")
     ]
+
+
+def capture_baseline_pass_to_pass(
+    repo_path: str | Path,
+    base_commit: str,
+    test_cmd: str,
+    docker_image: str = "",
+    timeout_s: int = 180,
+) -> list[str]:
+    """Derive pass_to_pass.json node IDs automatically from a real baseline test run."""
+    import sys
+
+    py_snippet = (
+        "import json, subprocess; "
+        "p = subprocess.run(['pytest', '-v', '--tb=no', '--no-header'], capture_output=True, text=True); "
+        "passed = [l.strip().split(' PASSED')[0].strip() for l in p.stdout.splitlines() "
+        "if ' PASSED' in l and '::' in l]; "
+        "print(json.dumps(passed))"
+    )
+    if docker_image:
+        if sys.platform == "win32":
+            cmd = f'wsl -d Ubuntu docker run --rm --network none {docker_image} python -c "{py_snippet}"'
+        else:
+            cmd = f'docker run --rm --network none {docker_image} python -c "{py_snippet}"'
+        proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout_s)
+        if proc.returncode == 0 and proc.stdout.strip():
+            last_line = proc.stdout.strip().splitlines()[-1]
+            return json.loads(last_line)
+
+    # Native fallback
+    wt_parent = Path(tempfile.mkdtemp(prefix="tessera_p2p_"))
+    wt: Path | None = None
+    try:
+        wt = create_worktree(repo_path, base_commit, "p2p_base", parent_dir=wt_parent)
+        rc, out, _ = run_cmd("python -m pytest -v --tb=no --no-header", cwd=wt, timeout_s=timeout_s, env={"PYTHONPATH": str(wt)})
+        return [
+            line.strip().split(" PASSED")[0].strip()
+            for line in out.splitlines()
+            if " PASSED" in line and "::" in line
+        ]
+    finally:
+        if wt is not None:
+            remove_worktree(repo_path, wt)
+        shutil.rmtree(wt_parent, ignore_errors=True)
+
+
+def synthesize_patch_from_response(
+    repo_path: str | Path,
+    base_commit: str,
+    raw_response: str,
+) -> tuple[bool, str, str]:
+    """Convert <<<EDIT file="...">>> <<<FIND>>>...<<<REPLACE>>>...<<<END_EDIT>>> blocks
+    into a clean git unified diff, or extract <<<PATCH>>>...<<<END_PATCH>>> fallback.
+
+    Tolerates LLMs using <<<FIND>>> instead of <<<END_FIND>>> or omitting trailing <<<END_EDIT>>>.
+    Returns (ok, patch_text, error_message).
+    """
+    edit_blocks: list[tuple[str, str, str]] = []
+    chunks = re.split(r'<<<EDIT\s+file=["\']([^"\']+)["\']\s*>>>', raw_response)
+    # chunks looks like [prefix, file1, body1, file2, body2, ...]
+    for i in range(1, len(chunks) - 1, 2):
+        fpath = chunks[i].strip()
+        body = chunks[i + 1]
+        if "<<<FIND>>>" not in body or "<<<REPLACE>>>" not in body:
+            continue
+        after_find = body.split("<<<FIND>>>", 1)[1]
+        find_part, _, rest = after_find.partition("<<<REPLACE>>>")
+        # Clean possible closing FIND markers (<<<END_FIND>>> or stray <<<FIND>>>)
+        for end_f in ("<<<END_FIND>>>", "<<<FIND>>>"):
+            if end_f in find_part:
+                find_part = find_part.split(end_f, 1)[0]
+        find_part = find_part.strip("\r\n")
+
+        repl_part = rest
+        for end_r in ("<<<END_REPLACE>>>", "<<<REPLACE>>>", "<<<END_EDIT>>>", "<<<END_FIND>>>"):
+            if end_r in repl_part:
+                repl_part = repl_part.split(end_r, 1)[0]
+        repl_part = repl_part.strip("\r\n")
+
+        if "<<<" in find_part or "<<<" in repl_part:
+            continue
+        edit_blocks.append((fpath, find_part, repl_part))
+
+    if not edit_blocks:
+        # Fallback to <<<PATCH>>> ... <<<END_PATCH>>>
+        m = re.search(r"<<<PATCH>>>\s*(.*?)\s*<<<END_PATCH>>>", raw_response, re.DOTALL)
+        if m:
+            p = m.group(1).strip().replace("\r\n", "\n")
+            if p.startswith("```"):
+                lines = p.splitlines()
+                p = "\n".join(lines[1:-1] if lines and lines[-1].startswith("```") else lines[1:])
+            if p and not p.endswith("\n"):
+                p += "\n"
+            return bool(p), p, "" if p else "Empty PATCH block"
+        return False, "", "No <<<EDIT>>> or <<<PATCH>>> blocks found in model output."
+
+    wt_parent = Path(tempfile.mkdtemp(prefix="tessera_edit_wt_"))
+    wt: Path | None = None
+    try:
+        wt = create_worktree(repo_path, base_commit, "edit_synth", parent_dir=wt_parent)
+        for rel_file, find_str, repl_str in edit_blocks:
+            rel_norm = rel_file.strip().lstrip("/")
+            if not rel_norm.startswith("src/"):
+                return False, "", f"Edit attempted outside src/: {rel_norm}"
+            target = wt / rel_norm
+            if not target.exists():
+                return False, "", f"Target file does not exist: {rel_norm}"
+            content = target.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n")
+            f_clean = find_str.replace("\r\n", "\n")
+            r_clean = repl_str.replace("\r\n", "\n")
+            if f_clean in content:
+                content = content.replace(f_clean, r_clean, 1)
+                target.write_text(content, encoding="utf-8", newline="\n")
+            elif f_clean.strip() in content:
+                content = content.replace(f_clean.strip(), r_clean.strip(), 1)
+                target.write_text(content, encoding="utf-8", newline="\n")
+            else:
+                return False, "", f"FIND block not matched verbatim in {rel_norm}: {f_clean[:160]!r}"
+
+        rc, diff_out, diff_err = run_cmd("git diff", cwd=wt)
+        if rc != 0:
+            return False, "", f"git diff failed: {diff_err}"
+        diff_clean = diff_out.replace("\r\n", "\n")
+        if not diff_clean.strip():
+            return False, "", "Edits produced an empty git diff."
+        if not diff_clean.endswith("\n"):
+            diff_clean += "\n"
+        return True, diff_clean, ""
+    finally:
+        if wt is not None:
+            remove_worktree(repo_path, wt)
+        shutil.rmtree(wt_parent, ignore_errors=True)

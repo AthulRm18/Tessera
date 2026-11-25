@@ -189,13 +189,27 @@ class GeminiProvider(BaseProvider):
 
         cfg = types.GenerateContentConfig(**cfg_kwargs)
 
-        resp = client.models.generate_content(model=model, contents=contents, config=cfg)
-        usage = resp.usage_metadata
-        return {
-            "content": resp.text or "",
-            "input_tokens": usage.prompt_token_count or 0 if usage else 0,
-            "output_tokens": usage.candidates_token_count or 0 if usage else 0,
-        }
+        last_err: Exception | None = None
+        for delay_s in (3.0, 8.0, 15.0, None):
+            try:
+                resp = client.models.generate_content(model=model, contents=contents, config=cfg)
+                usage = resp.usage_metadata
+                return {
+                    "content": resp.text or "",
+                    "input_tokens": usage.prompt_token_count or 0 if usage else 0,
+                    "output_tokens": usage.candidates_token_count or 0 if usage else 0,
+                }
+            except Exception as exc:
+                last_err = exc
+                msg = str(exc)
+                transient = any(code in msg for code in ("503", "429", "UNAVAILABLE", "RESOURCE_EXHAUSTED"))
+                if not transient or delay_s is None:
+                    raise
+                console.print(f"[yellow]Transient Gemini API error; retrying in {delay_s:.0f}s...[/yellow]")
+                time.sleep(delay_s)
+
+        assert last_err is not None
+        raise last_err
 
 
 @_register
@@ -232,8 +246,9 @@ _ESTIMATED_COST_PER_1K: dict[str, dict[str, float]] = {
     "gpt-4o":                    {"input": 0.005,    "output": 0.015},
     "gpt-4o-mini":               {"input": 0.00015,  "output": 0.0006},
     # Google Gemini (estimated fallback rates based on ai.google.dev/pricing, Nov 2026)
+    "gemini-3.6-flash":          {"input": 0.00010,  "output": 0.0004},
     "gemini-3.5-flash":          {"input": 0.000075, "output": 0.0003},
-    "gemini-3.5-flash-lite":     {"input": 0.00001,  "output": 0.00004},
+    "gemini-3.5-flash-lite":     {"input": 0.00002,  "output": 0.00008},
     "gemini-2.5-flash":          {"input": 0.000075, "output": 0.0003},
     "gemini-2.5-flash-lite":     {"input": 0.00001,  "output": 0.00004},
     "gemini-2.5-pro":            {"input": 0.00125,  "output": 0.005},
@@ -386,8 +401,8 @@ def call_llm(
         ledger = UsageLedger()
     cdir = Path(cache_dir) if cache_dir is not None else Path("runs/cache")
 
-    provider_name = os.environ.get(provider_env, "mock").lower()
-    model = os.environ.get(model_env, "mock-model")
+    provider_name = (os.environ.get(provider_env) or os.environ.get("LLM_PROVIDER", "mock")).lower()
+    model = os.environ.get(model_env) or os.environ.get("LLM_MODEL", "mock-model")
 
     if provider_name not in _PROVIDERS:
         raise RuntimeError(
@@ -401,6 +416,8 @@ def call_llm(
     params = {"max_tokens": max_tokens, "temperature": temperature}
     key = _cache_key(model, messages, params)
     cpath = _cache_path(cdir, key)
+
+    replay_only = os.environ.get("TESSERA_REPLAY", "").lower() in ("1", "true", "yes")
 
     # Cache hit?
     cached = _load_cache(cpath)
@@ -417,6 +434,10 @@ def call_llm(
         )
         console.print(f"[dim]llm cache hit: {key[:12]}[/dim]")
         raw = cached["content"]
+    elif replay_only:
+        raise RuntimeError(
+            f"TESSERA_REPLAY=1 enabled, but cache miss occurred for model={model}, key={key[:12]} in {cdir}"
+        )
     else:
         t0 = time.monotonic()
         result = provider.complete(model, messages, max_tokens, temperature, expect_json=expect_json)
