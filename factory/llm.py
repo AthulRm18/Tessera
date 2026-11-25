@@ -231,7 +231,12 @@ _ESTIMATED_COST_PER_1K: dict[str, dict[str, float]] = {
     # OpenAI (source: openai.com/pricing, Nov 2026)
     "gpt-4o":                    {"input": 0.005,    "output": 0.015},
     "gpt-4o-mini":               {"input": 0.00015,  "output": 0.0006},
-    # Google Gemini (source: ai.google.dev/pricing, Nov 2026; subject to free tier)
+    # Google Gemini (estimated fallback rates based on ai.google.dev/pricing, Nov 2026)
+    "gemini-3.5-flash":          {"input": 0.000075, "output": 0.0003},
+    "gemini-3.5-flash-lite":     {"input": 0.00001,  "output": 0.00004},
+    "gemini-2.5-flash":          {"input": 0.000075, "output": 0.0003},
+    "gemini-2.5-flash-lite":     {"input": 0.00001,  "output": 0.00004},
+    "gemini-2.5-pro":            {"input": 0.00125,  "output": 0.005},
     "gemini-2.0-flash":          {"input": 0.000075, "output": 0.0003},
     "gemini-2.0-flash-lite":     {"input": 0.00001,  "output": 0.00004},
     "gemini-1.5-pro":            {"input": 0.00125,  "output": 0.005},
@@ -442,7 +447,7 @@ def call_llm(
         )
         console.print(
             f"[dim]llm call: {model} | {in_tok}+{out_tok} tok | "
-            f"${cost:.4f} | {duration:.1f}s[/dim]"
+            f"estimated ${cost:.4f} | {duration:.1f}s[/dim]"
         )
 
     if not expect_json:

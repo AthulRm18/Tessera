@@ -75,8 +75,9 @@ environment_mode = "shared"
 timeout_sec = 300.0
 
 [environment]
-# Hermetic network: no external network access allowed during evaluation
-network_mode = "none"
+# Default for Harbor 0.25.x DockerEnvironment (unless egress sidecar enabled); all tests are offline-safe
+network_mode = "public"
+build_timeout_sec = 600.0
 ```
 
 ---
@@ -86,19 +87,19 @@ network_mode = "none"
 Every task has its own `environment/Dockerfile` that builds the target repository from scratch starting at `base_commit`. Identical Dockerfiles across tasks from the same repo base commit share Docker layer cache automatically.
 
 ```dockerfile
-FROM python:3.11-slim
+FROM python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
 
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     build-essential \
+    less \
     && rm -rf /var/lib/apt/lists/*
 
 # Clone repository and checkout exact base_commit
-RUN git clone https://github.com/pallets/click.git /app \
-    && cd /app \
-    && git checkout <base_commit>
+RUN git clone https://github.com/pallets/click.git /app && \
+    git checkout cf19179e8e2fd54c601378cec9e0d21bb12b6fb1
 
 # Install dependencies and package in editable mode
 RUN pip install --no-cache-dir -e . && pip install --no-cache-dir pytest

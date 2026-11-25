@@ -25,6 +25,7 @@ venv/
 runs/
 packages/
 jobs/
+scratch/
 temp_harbor_init/
 
 # Target repos (supplied separately; never modify in place)

@@ -27,13 +27,13 @@
 - [x] Record open questions & discrepancies in `docs/OPEN_QUESTIONS.md`
 - [x] Update `docs/TASK_SCHEMA.md` to Harbor 0.25.x with per-task `environment/Dockerfile`
 - [x] Create `docs/MODELS.md` declaring all models and tools
-- [ ] Select recent stable release tag of `pallets/click` and record full 40-char hash
-- [ ] Build Docker image from `environment/Dockerfile` and verify clean green baseline tests
-- [ ] **Approval checkpoint 1:** Show tag, hash, license, Python version, container test count & runtime, and green baseline
-- [ ] Install `harbor==0.25.*` and verify `harbor --version` in WSL2 / Linux
-- [ ] Hand-build 1 Click task in Harbor 0.25.x format; verify `nop` = 0.0 and `oracle` = 1.0 in Docker
-- [ ] Show `tests/fail_to_pass.json` and `tests/pass_to_pass.json`
-- [ ] **Approval checkpoint 2:** Harbor reality check verification
+- [x] Select recent stable release tag of `pallets/click` and record full 40-char hash (`8.5.1` / `cf19179e8e2fd54c601378cec9e0d21bb12b6fb1`)
+- [x] Build Docker image from `environment/Dockerfile` and verify clean green baseline tests (3x offline runs: 2434 passed, 24 skipped, 31000 deselected, 1 xfailed)
+- [x] **Approval checkpoint 1:** Show tag, hash, license, Python version, container test count & runtime, and green baseline
+- [x] Install `harbor==0.25.*` and verify `harbor --version` in WSL2 / Linux (`0.25.0`)
+- [x] Hand-build 1 Click task (`ip_address_type`) in Harbor 0.25.x format; verify `nop` = 0.0 and `oracle` = 1.0 in Docker
+- [x] Show `tests/fail_to_pass.json` and `tests/pass_to_pass.json`
+- [ ] **Approval checkpoint 2:** Harbor reality check verification (awaiting user OK)
 
 ### Milestone 2 — Generation & Planner End-to-End (27–29 Nov)
 - [ ] `configs/click.yaml` tuned for Click symbols and behaviour axes (feature additions only; bug fixes disabled)

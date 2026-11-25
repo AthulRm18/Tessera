@@ -100,3 +100,15 @@ Context: Official PDF requires that generated features must not exist upstream, 
 Decision: Implement an upstream-novelty gate testing candidate feature tests against click's latest default branch; automatically generate `fail_to_pass.json` and `pass_to_pass.json` from real test node IDs.
 Alternatives: Hand-curating test lists (error-prone, violates reproducibility).
 Consequences: Proven originality and full SWE-bench benchmark interoperability.
+
+### D-016 · Computation of `pass_to_pass.json` from upstream baseline · 2026-11-25
+Context: Running `pytest` on `pallets/click` at `8.5.1` (`cf19179e8e2fd54c601378cec9e0d21bb12b6fb1`) inside Debian Linux Docker yields 2,434 passed, 24 skipped (all Windows-only `msvcrt`/editor/fd checks), 1 `xfailed` (`tests/test_chain.py::test_group_chaining`), and 31,000 deselected (`addopts = "-m 'not stress'"` in `pyproject.toml`).
+Decision: Compute `pass_to_pass.json` from the exact 2,434 pytest node IDs that have outcome `passed` under upstream's default test command (`pytest`) inside the pinned Linux container, excluding Windows-only skips, `xfailed` tests, and `stress` iterations.
+Alternatives: Including skipped tests (breaks cross-OS parity) or overriding `addopts` to run 31,000 stress iterations (adds ~5+ min per container evaluation).
+Consequences: Every regression check protects 100% of Click's deterministic Linux baseline suite in ~12s per run (`configs/click_pass_to_pass.json`).
+
+### D-017 · Harbor `[environment].network_mode = "public"` for local Docker compatibility · 2026-11-25
+Context: Harbor 0.25.0 `harbor run` failed with `ValueError: network_mode='no-network' is not supported by EnvironmentType.DOCKER environment` unless dynamic egress sidecar is enabled; `harbor task init` explicitly emits `network_mode = "public"`.
+Decision: Set `network_mode = "public"` in `task.toml` `[environment]` (matching `harbor task init`) and `environment_mode = "shared"` in `[verifier]` so `solve.sh` changes are visible to `test.sh`. Test offline safety separately via `docker run --network none`.
+Alternatives: `"no-network"` (crashes local `harbor run` with Docker driver).
+Consequences: Both `harbor run -a nop` and `harbor run -a oracle` execute cleanly in Docker, while test hermeticity is independently verified with `--network none`.
