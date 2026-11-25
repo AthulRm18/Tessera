@@ -1,54 +1,55 @@
-# config.yaml — Tessera stand-in repo configuration
+# config.yaml — Default active repo configuration (synced to configs/click.yaml)
 #
 # ALL repo-specific details live here. Pipeline code never hardcodes repo names,
 # paths, languages, or assumptions. Swapping repos = edit this file + rerun.
-# When the official repo arrives: update repo.path, base_ref, setup_cmd, test_cmd,
-# result_format, docker_image — then run: tessera profile && tessera run
+# Official Starter: pallets/click (tag 8.5.1, BSD-3-Clause)
 
 repo:
   path: "./target_repo"
-  base_ref: "main"
-  setup_cmd: ""          # e.g. "pip install -e ." or "npm install"
-  test_cmd: ""           # e.g. "pytest -v" or "npm test"
-  result_format: "pytest"  # pytest | jest | junit_xml | text
+  base_ref: "cf19179e8e2fd54c601378cec9e0d21bb12b6fb1"
+  setup_cmd: "pip install -e ."
+  test_cmd: "pytest -v --tb=short"
+  result_format: "pytest"
   timeout_s: 120
-  docker_image: ""       # set after first build; reused across all tasks for this repo
+  docker_image: "tessera-click-hardened:cf19179"
 
 generation:
-  n_tasks: 6             # target 5–6 strong tasks; quality over count
-  enable_bugfix_axis: false  # enable only after feature tasks work (UNVERIFIED organizer req)
+  n_tasks: 5
+  enable_bugfix_axis: false
   behaviour_axes:
-    - new_business_rule
+    - parameter_validation_rules
+    - custom_param_type
+    - option_interaction_or_precedence
+    - help_formatting_behaviour
+    - context_or_command_chaining
     - threshold_or_limit
     - state_transition
-    - validation_and_error_policy
-    - ordering_or_priority
-    - interaction_between_features
     - idempotency
-    - rounding_or_units
   max_repairs: 2
 
 gates:
   determinism_runs: 3
   mutation_kill_threshold: 0.70
-  solver_attempts: 3
-  solver_model_env: "LLM_SOLVER_MODEL"  # different model/session from generator
+  solver_attempts: 2
+  solver_provider_env: "LLM_SOLVER_PROVIDER"
+  solver_model_env: "LLM_SOLVER_MODEL"
 
 llm:
   provider_env: "LLM_PROVIDER"
+  planner_model_env: "LLM_PLANNER_MODEL"
   model_env: "LLM_MODEL"
-  key_env: "LLM_API_KEY"
-  max_tokens: 4096
+  key_env: "GEMINI_API_KEY"
+  max_tokens: 8192
   temperature: 0.2
 
 budget:
-  max_tokens_per_run: 200000
+  max_tokens_per_run: 1000000
   max_cost_per_run: 2.00
-  max_tokens_per_task: 50000
-  max_cost_per_task: 0.50
+  max_tokens_per_task: 120000
+  max_cost_per_task: 0.40
 
 output:
-  runs_dir: "./runs"
-  packages_dir: "./packages"
-  samples_dir: "./samples"
-  cache_dir: "./runs/cache"
+  runs_dir: "runs/click"
+  packages_dir: "packages/click"
+  samples_dir: "samples"
+  cache_dir: "runs/cache"
