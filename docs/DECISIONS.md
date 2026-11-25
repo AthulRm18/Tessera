@@ -76,3 +76,27 @@ Context: Official API access not yet issued; need to build and test without real
 Decision: A mock provider is allowed ONLY in tests. Any run using it is flagged and excluded from reports. Real runs require real credentials.
 Alternatives: Use free-tier models — may not be available or permitted.
 Consequences: Pipeline works end-to-end in tests without credentials; production runs need .env set up.
+
+### D-012 · Official repo switch to pallets/click · 2026-11-25
+Context: Official PDF restricts Track 1 to three designated repos only: pallets/click, colinhacks/zod, open-source-parsers/jsoncpp.
+Decision: Select `pallets/click` (Python, pytest) as Tessera's submission repository. Stand-ins (PyJWT, validator.js) are retired from submission scope and kept only as local tests/fixtures.
+Alternatives: colinhacks/zod (TypeScript), open-source-parsers/jsoncpp (C++).
+Consequences: Pipeline core remains 100% config-driven via `configs/click.yaml`.
+
+### D-013 · Bug-fix tasks strictly excluded · 2026-11-25
+Context: Official PDF explicitly specifies: "Tasks must represent new feature-development tasks or changes to existing behaviour. Bug-fix tasks are out of scope."
+Decision: Strictly disable any bug-fix axis in generation. Tasks focus entirely on feature additions, parameter validation, new ParamTypes, option interactions, and behaviour policies.
+Alternatives: Allow bug-fix tasks (would violate official requirements).
+Consequences: All generated candidate tasks represent genuine additive feature capabilities.
+
+### D-014 · Pin Harbor framework to v0.25.x with per-task Dockerfile · 2026-11-25
+Context: Official PDF specifies: "Track 1 tasks strictly adhere to the Harbor framework (version 0.25.x). Harbor is installed via pip install 'harbor==0.25.*'." Each task folder must contain an `environment/Dockerfile`.
+Decision: Pin Harbor version to 0.25.x. Each task package includes its own `environment/Dockerfile` building from the exact base commit.
+Alternatives: Relying on generic `docker_image` tag without `environment/` (prohibited by PDF spec).
+Consequences: Harbor task packages are 100% compliant with organizer specifications and Docker layer caching ensures fast re-builds.
+
+### D-015 · Upstream-novelty gate and SWE-bench test split artifacts · 2026-11-25
+Context: Official PDF requires that generated features must not exist upstream, and test packages must include `tests/fail_to_pass.json` and `tests/pass_to_pass.json`.
+Decision: Implement an upstream-novelty gate testing candidate feature tests against click's latest default branch; automatically generate `fail_to_pass.json` and `pass_to_pass.json` from real test node IDs.
+Alternatives: Hand-curating test lists (error-prone, violates reproducibility).
+Consequences: Proven originality and full SWE-bench benchmark interoperability.

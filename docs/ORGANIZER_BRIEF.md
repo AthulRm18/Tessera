@@ -1,53 +1,49 @@
 # docs/ORGANIZER_BRIEF.md
 
-Summary of everything we know from the organizers. **VERIFIED** = confirmed source.
-**UNVERIFIED** = AI summary of Q&A recording; team must confirm before relying on it.
+Summary of everything we know from the organizers. **VERIFIED** = confirmed official source.
+**UNCONFIRMED / OPEN QUESTIONS** = pending confirmation; tracked in `docs/OPEN_QUESTIONS.md`.
 
 ---
 
-## VERIFIED — official hackathon page and FAQ
+## Official PDF (VERIFIED) — Participant Guide & Technical Specifications (25 Nov 2026)
 
-- **Problem:** Using a supplied working repo and task interface, build ONE reusable strategy that generates realistic feature-development tasks. Each package: clear achievable requirements, a reference implementation, tests that verify the new feature while protecting existing functionality; packages identify their starting repo version and follow the supplied task interface.
-- **Big question:** How can we automatically create realistic software-development tasks that are clear, solvable and reliably testable? The hard part is NOT writing descriptions with an LLM; it is making tasks solvable, consistent with the repo, meaningfully different, and reliably testable.
-- **Stand out:** Prove each implementation meets its requirements; show tests catch missing or incorrect behaviour; vary behaviour, rules or interactions — not names; "meaningful variation beats a high task count."
-- **Submit:** Reusable pipeline; sample task packages; validation evidence (tests, runs, results); runnable source with setup and run instructions; technical explanation (list reused open-source components and any manual steps); live demo that generates and validates a package. Never include API keys or secrets.
-- **Format:** A command-line tool is enough; a focused, reliable prototype, not production-ready. No polished frontend. No special hardware. Any language.
-- **Judging weights:**
-  - 25% Working implementation and repeatability — runs end-to-end on the supplied repo; generalises beyond one hand-prepared example.
-  - 25% Validity and evidence — tasks solvable, reference passes, feature tests detect missing/wrong behaviour, regression checks protect existing functionality.
-  - 20% Meaningful variation — behaviour, rules, interactions; not wording.
-  - 15% Original approach and engineering judgement — design choices, sensible scope, responsible resource use, honest limitations.
-  - 15% Practical impact and communication — value for evaluating AI coding systems; demo clarity.
-- **Timeline:** Build 10 Nov – 6 Dec; judging 7–15 Dec; finalists 14 Dec; Grand Finale 20 Dec, live pitch New Delhi.
-- **Team:** 3–4 members. Organizer-provided Claude Code and model API access within usage limits (not yet issued as of 23 Nov 2026).
+This official PDF supersedes all earlier assumptions and informal communications.
 
----
-
-## VERIFIED — direct email, Klent Abistado, Hack2Skill (personal email reply)
-
-- Hack2Skill will provide the repo link, task interface spec, and Claude Code credits after finalization. No date given.
-- **We do NOT have to wait:** pick any repo to work on and swap in the official one later.
-- **The task interface follows the Harbor format** (harborframework.com).
-
-> Action: Confirm in writing with Hack2Skill to get official email/documentation.
-
----
-
-## UNVERIFIED — AI summary of Q&A recording (team must confirm)
-
-> All items below are unverified. Do NOT build assumptions on them until confirmed.
-> Each is also listed in docs/OPEN_QUESTIONS.md.
-
-1. Three candidate repos to choose from (not one fixed repo).
-2. The factory must work across repos without hard-coding (consistent with our config.yaml approach).
-3. Tasks may be feature implementations OR bug fixes (bug-fix as an optional extra axis).
-4. Organizers' validation checks: (a) original repo works as-is; (b) tests pass after the implementation; (c) the feature test fails when the feature is removed.
-5. Originality includes checkpointing (unclear what this means — ask organizers).
-6. Reference code may be AI-generated.
-7. Background context: SWE-bench, SWE-bench Verified, LiveCodeBench.
+- **Three Designated Repositories Only:** Teams must choose **exactly one** of:
+  1. `pallets/click` (Python, CLI toolkit, `pip install -e .` and `pytest`)
+  2. `colinhacks/zod` (TypeScript/JavaScript, schema validation, `pnpm install && pnpm build`, `vitest`)
+  3. `open-source-parsers/jsoncpp` (C++, JSON library, CMake and `ctest`)
+  *Arbitrary repositories or projects built in Django, Flask, FastAPI, React, Java, or Kotlin are strictly NOT permitted.*
+- **Target Selection:** Tessera chooses **`pallets/click`** as our target repository.
+- **Task Volume & Variation:** Must produce **at least 5 distinct, substantively different tasks** from the chosen single repository. Tasks must differ in behaviour, rules, or interactions; simple rewording or renaming does not constitute variation.
+- **Task Scope:** Features and behaviour changes **only**. Bug-fix tasks are strictly **OUT OF SCOPE**. Tasks cannot start from a modified repository. Generated features must **not exist upstream**.
+- **Starting Commit:** Real, recent, stable commit (release tag ideal) where build and all existing tests pass. Full 40-character commit hash must be recorded in `task.toml` under `base_commit`.
+- **Harbor Specification:** Strictly adheres to **Harbor framework version 0.25.x** (`pip install "harbor==0.25.*"`). Docker must be running.
+- **Package Architecture (5 Core Components in each task folder):**
+  1. `instruction.md`: Complete requirements document. This is the **ONLY** file visible to the evaluated AI coding system. Must declare all symbols, signatures, errors, and observable behaviour without leaking implementation hints.
+  2. `solution/`: Reference implementation provided as a code patch.
+  3. `tests/`: New feature tests, existing regression tests list, test runners, plus SWE-bench-style `tests/fail_to_pass.json` and `tests/pass_to_pass.json` (using exact test runner node IDs).
+  4. `environment/`: Dockerfile that builds the repository starting at the recorded `base_commit`. Each task has its own `environment/Dockerfile` (identical Dockerfiles leverage Docker layer cache).
+  5. `task.toml`: Task metadata including repo details, full 40-char `base_commit` hash, and licensing.
+- **Official Validation & Scoring:**
+  - Baseline (`nop`) check: `harbor run -p <task_dir> -a nop -k 1 -o <out_dir> --no-delete -y` $\rightarrow$ must yield reward **`0.0`** (feature tests fail, existing regression tests pass).
+  - Oracle (`oracle`) check: `harbor run -p <task_dir> -a oracle -k 1 -o <out_dir> --no-delete -y` $\rightarrow$ must yield reward **`1.0`** (all feature and regression tests pass).
+  - **Reward function:** If any regression test fails, reward = `0.0`. If all feature tests pass, reward = `1.0`. Otherwise, reward = share of passing feature tests. `null` indicates an environmental crash.
+- **Hermetic & Secure:** No tests requiring external network access or real credentials. Security feature tasks that create or exploit vulnerabilities are out of scope.
+- **Automated Reliability:** Judges execute submissions in a standardized Docker environment. Automated pipeline reliability takes precedence over manual output corrections.
+- **Mutation Testing:** Strongly recommended by organizers to prove tests detect deliberately broken implementations.
+- **Model & Tool Declaration:** Participants may use any coding agents or models for Track 1 pipelines, provided **ALL** tools and models (planner, generator, solver) are declared in `docs/MODELS.md` and technical documentation.
+- **Submission Deliverables:**
+  1. Runnable source code with setup and run instructions.
+  2. Sample task packages (minimum 5 accepted tasks from `pallets/click`) tagged to commits.
+  3. Validation evidence (logs, metrics, failure cases, documented manual fixes).
+  4. Technical explanation (`docs/TECHNICAL_EXPLANATION.md`) covering design decisions, assumptions, reused components, model choices, and variation strategy.
+  5. Walkthrough video demonstrating the pipeline end to end (including a real rejection).
+  6. Submission deck following organizer template.
+- **Finals & Team:** Teams of 1 to 4 individuals allowed (solo accepted). Finalist teams present live in New Delhi on 20 December 2026.
 
 ---
 
-## What we're doing without the official repo
-
-We have chosen two stand-in repos (see docs/DECISIONS.md) in different languages. All repo-specific details live in config.yaml. Swapping to the official repo is a config change + rerun. See PLAN.md for schedule.
+## Earlier Verified Items (Maintained)
+- Klent Abistado (Hack2Skill email): Task interface is Harbor format.
+- Timeline: Submission due 6 Dec 2026 (target submit 5 Dec).

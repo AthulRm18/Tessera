@@ -1,154 +1,144 @@
-# TASK_SCHEMA.md — Harbor Task Format
+# TASK_SCHEMA.md — Harbor Task Format (v0.25.x)
 
-> **The official task interface is the Harbor format** (harborframework.com).
-> This file documents the Harbor structure as we understand it from the docs.
-> The supplied organizer spec overrides this file wherever they differ.
-> Phase 0 must confirm every field against the official spec; packager emits the Harbor format only.
->
-> Source: https://docs.harborframework.com/llms.txt (tasks/overview, tasks/configuration,
-> tasks/instruction, tasks/environment, tasks/solution, tasks/verifier,
-> tutorials/create-a-task, jobs/run-a-job) — read and quoted; never guessed.
+> **Official Task Interface:** Track 1 strictly adheres to the Harbor framework (version 0.25.x).
+> Source: Official PDF "Innodata AI Hackathon - Participant Guide & Technical Specifications" (25 Nov 2026).
+> Harbor CLI installation: `pip install "harbor==0.25.*"`.
 
 ---
 
-## Harbor task directory layout
+## Harbor Task Directory Layout
+
+Each generated task package is contained in a single self-contained directory:
 
 ```
 packages/<task_id>/
-├── instruction.md          # Task description shown to the solver
-├── task.toml               # Task configuration (Harbor schema)
-├── environment/            # (Optional if docker_image set in task.toml)
-│   └── Dockerfile
+├── instruction.md          # Complete requirement document; ONLY file visible to the evaluated AI
+├── task.toml               # Task metadata (schema_version = "1.4", repo details, base_commit)
+├── environment/
+│   └── Dockerfile          # Builds the repo starting at base_commit (runs baseline tests)
 ├── solution/
-│   └── solve.sh            # Reference implementation script
+│   ├── solve.sh            # Reference solution apply script
+│   └── reference.patch     # Clean unified diff patch
 └── tests/
-    └── test.sh             # Test runner; writes reward to /logs/verifier/reward.txt
+    ├── test.sh             # Test runner executing tests inside container; emits reward
+    ├── test_feature.py     # Feature test file asserting acceptance criteria
+    ├── fail_to_pass.json   # SWE-bench style array of test IDs failing on base, passing on reference
+    └── pass_to_pass.json   # SWE-bench style array of existing tests passing on both
 ```
 
-Plus our internal metadata alongside each package:
+Alongside each package, Tessera maintains internal verification evidence:
 ```
 packages/<task_id>/
 └── tessera/
-    ├── task_metadata.json      # Tessera task.json (module, axis, criteria, etc.)
-    └── validation_report.json  # Gate evidence G1–G7
-```
-
-And a top-level manifest:
-```
-packages/
-└── manifest.json
+    ├── task_metadata.json      # Structured task metadata (module, axis, criteria, interface)
+    └── validation_report.json  # Comprehensive evidence across Gates G1–G7
 ```
 
 ---
 
-## task.toml fields (Harbor)
+## 1. `instruction.md`
+
+The **ONLY** file exposed to the agent under evaluation. Must be clear, unambiguous, and solvable.
+Strict content rules:
+- **Title and Problem Description**: What feature or behavioural change is required and why.
+- **Numbered Acceptance Criteria**: `AC1`, `AC2`, `AC3`, ...
+- **Interface Specification**: Exact symbols, signatures, parameter types, return types, and exception classes the test suite asserts against.
+- **Out of Scope**: Explicit boundaries to prevent unintended side effects.
+- **Zero Implementation Hints**: No code snippets for the solution, no internal private details, no patch leakage.
+
+---
+
+## 2. `task.toml` (Harbor 0.25.x / schema_version "1.4")
 
 ```toml
 schema_version = "1.4"
 
 [task]
-name = "<task_id>"             # Short task identifier
-description = "..."             # Task summary
-
+name = "tessera/<task_id>"
+description = "<task summary>"
 authors = [
   { name = "Tessera Factory", email = "tessera@frontier-ai.org" }
 ]
 
 [metadata]
 category = "software-engineering"
-difficulty_explanation = "..."
+difficulty_explanation = "Generated and verified by Tessera Coding Task Factory."
+tags = ["python", "cli", "pallets/click", "feature"]
+repository = "https://github.com/pallets/click"
+base_commit = "<full 40-character commit hash>"
 
 [verifier]
-timeout_sec = 120.0
+timeout_sec = 300.0
+environment_mode = "shared"
 
 [agent]
-timeout_sec = 120.0
+timeout_sec = 300.0
 
 [environment]
-network_mode = "allowlist"
-# docker_image = "..."          # Set when pre-built image exists
+# Hermetic network: no external network access allowed during evaluation
+network_mode = "none"
 ```
 
 ---
 
-## instruction.md structure (our content, within Harbor's container)
+## 3. `environment/Dockerfile`
 
-1. **Context** — what part of the repo this touches (real file and symbol names).
-2. **Feature** — plain-language goal.
-3. **Acceptance criteria** — numbered `AC1…ACn`, each testable and unambiguous.
-4. **Interface** — exact names, signatures, return values and error types tests will call. Prevents false failures from naming mismatches.
-5. **Out of scope** — what must not change.
+Every task has its own `environment/Dockerfile` that builds the target repository from scratch starting at `base_commit`. Identical Dockerfiles across tasks from the same repo base commit share Docker layer cache automatically.
 
-No implementation hints. No leaking of the reference solution.
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone repository and checkout exact base_commit
+RUN git clone https://github.com/pallets/click.git /app \
+    && cd /app \
+    && git checkout <base_commit>
+
+# Install dependencies and package in editable mode
+RUN pip install --no-cache-dir -e . && pip install --no-cache-dir pytest
+```
 
 ---
 
-## solution/solve.sh
+## 4. `solution/solve.sh`
 
-The reference implementation. Runs inside the Harbor container. Applies the patch or writes the implementation directly. Must make all feature tests pass without breaking existing tests.
+Applies the reference implementation patch cleanly to the container's `/app` workspace:
 
----
-
-## tests/test.sh
-
-Runs the test suite inside the container. Final line writes the reward:
 ```bash
-echo "1" > /logs/verifier/reward.txt   # 1 = pass, 0 = fail
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PATCH_FILE="$SCRIPT_DIR/reference.patch"
+
+if [ -f "$PATCH_FILE" ]; then
+    echo "Applying reference implementation patch..."
+    git apply "$PATCH_FILE" || patch -p1 < "$PATCH_FILE"
+    echo "Reference patch applied successfully."
+else
+    echo "Error: Patch file $PATCH_FILE not found." >&2
+    exit 1
+fi
 ```
-Or writes JSON to `/logs/verifier/reward.json` (confirm format from docs).
 
 ---
 
-## tessera/validation_report.json (our internal evidence)
+## 5. `tests/` Structure
 
-```json
-{
-  "task_id": "...",
-  "base_commit": "...",
-  "gates": {
-    "G1_clean_apply":      {"passed": true,  "evidence": "patch applied cleanly"},
-    "G2_fail_to_pass":     {"passed": true,  "base_failed": ["test_x"], "patched_passed": ["test_x"],
-                            "organizer_checks": {
-                              "original_repo_works": true,
-                              "tests_pass_with_implementation": true,
-                              "tests_fail_without_feature": true
-                            }},
-    "G3_no_regressions":   {"passed": true,  "suite_before": {}, "suite_after": {}},
-    "G4_determinism":      {"passed": true,  "runs": 3, "flaky_tests": []},
-    "G5_traceability":     {"passed": true,  "uncovered_criteria": [], "orphan_tests": [], "undeclared_symbols": []},
-    "G6_mutation":         {"passed": true,  "mutants": 10, "killed": 8, "kill_rate": 0.80, "survivors": []},
-    "G7_independent_solve":{"solved": true,  "attempts": 1, "notes": ""}
-  },
-  "repairs": 0,
-  "accepted": true,
-  "reject_reason": null,
-  "run": {"tokens": 0, "est_cost": 0.0, "duration_s": 0.0, "tool_versions": {}, "cache_hits": 0}
-}
-```
-
-All values come from real executions. Never fabricate.
+- `test.sh`: The test execution script run by Harbor verifier. Runs both the feature test and regression suite, and outputs the numeric reward to `/logs/verifier/reward.txt`.
+- `tests/fail_to_pass.json`: Array of test IDs (e.g. `["tests/test_feature.py::test_new_param_validation"]`) that FAIL on the unpatched base repo and PASS with the reference solution.
+- `tests/pass_to_pass.json`: Array of baseline regression test IDs that PASS both before and after the solution.
 
 ---
 
-## tessera/task_metadata.json
+## Validation Matrix Verification
 
-```json
-{
-  "task_id": "task_001_cart_discount_threshold",
-  "title": "Add discount threshold to cart",
-  "base_commit": "<exact SHA>",
-  "base_tag": "<tag or ref>",
-  "module": "cart",
-  "behaviour_axis": "threshold_or_limit",
-  "interaction_partner": null,
-  "behaviour_signature": "apply discount when subtotal exceeds threshold",
-  "interface": ["Cart.apply_discount(code: str, threshold: float, pct: float) -> float"],
-  "acceptance_criteria": [
-    {"id": "AC1", "text": "..."},
-    {"id": "AC2", "text": "..."}
-  ],
-  "test_map": {"test_discount_applied": ["AC1"], "test_no_discount_below_threshold": ["AC2"]},
-  "generator": {"model": "<from env>", "seed": 42, "run_id": "...", "prompt_hash": "..."},
-  "created_at": "2026-11-23T..."
-}
-```
+Every task package must pass both official passes:
+1. **Nop check:** `harbor run -p <task_dir> -a nop -k 1 -o <out_dir> --no-delete -y` $\rightarrow$ Reward `0.0`.
+2. **Oracle check:** `harbor run -p <task_dir> -a oracle -k 1 -o <out_dir> --no-delete -y` $\rightarrow$ Reward `1.0`.

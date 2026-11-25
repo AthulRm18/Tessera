@@ -1,44 +1,56 @@
 # SUBMISSION_CHECKLIST.md
 
-Tick only with evidence (command output, file path). Aim to submit by **5 Dec**; deadline is **6 Dec 2026**.
+Tick only with verifiable evidence (command output, file path, run id).
+Aim to submit by **5 Dec 2026**; hard deadline is **6 Dec 2026**.
 
-## Working implementation (25%)
-- [ ] Fresh clone + README quickstart works on a clean machine
-- [ ] `factory run -n N` completes on the supplied repo
-- [ ] Pipeline contains no repo-specific hard-coding (repo details only in `config.yaml`)
-- [ ] Second fixture repo (stretch) runs, or limitation documented
+---
 
-## Validity evidence (25%)
-- [ ] Every accepted task has `validation_report.json` with G1–G6 passed and G7 recorded
-- [ ] `factory verify` passes for every accepted package from a clean checkout
-- [ ] Mutation kill rates and survivors reported honestly
-- [ ] Rejected tasks and reasons included in the report
+## 1. Implementation & Repeatability
+- [ ] Pipeline runs end-to-end on `pallets/click` via `tessera run -n 5 --config configs/click.yaml`
+- [ ] Clean repository: no hard-coded paths or repo names in core code (repo details strictly in `configs/click.yaml`)
+- [ ] Automated pipeline reliability demonstrated (runs without manual fixes)
+- [ ] Fresh-machine clone and README quickstart passes on clean Linux / WSL2 environment
 
-## Variation (20%)
-- [ ] Distinctness matrix generated; no overlapping accepted pairs
-- [ ] Coverage table by module and behaviour axis in the report
+---
 
-## Engineering judgement (15%)
-- [ ] `DECISIONS.md` current
-- [ ] `LIMITATIONS.md` honest and matches observed behaviour
-- [ ] Usage ledger shows tokens and estimated cost
-- [ ] Reused open-source components listed in `README.md`
+## 2. Validity & Validation Evidence
+- [ ] Minimum 5 distinct accepted task packages from `pallets/click` in `samples/`
+- [ ] Every package passes official Harbor 0.25.x validation inside Docker:
+  - `harbor run -p <pkg> -a nop -k 1 -o <out> --no-delete -y` $\rightarrow$ Reward **0.0**
+  - `harbor run -p <pkg> -a oracle -k 1 -o <out> --no-delete -y` $\rightarrow$ Reward **1.0**
+- [ ] Every task package contains:
+  - `instruction.md` (zero patch/solution leakage; complete interface specification)
+  - `solution/solve.sh` and `solution/reference.patch`
+  - `tests/` with feature tests, test runners, `fail_to_pass.json`, and `pass_to_pass.json`
+  - `environment/Dockerfile` building repo starting at full 40-char `base_commit`
+  - `task.toml` (Harbor schema_version = "1.4", repo details, base_commit)
+- [ ] Hermetic tests: zero external network calls or real credentials required at test time
+- [ ] Gates G1–G7 evidence saved in `validation_report.json` for each package
+- [ ] Mutation testing (G6) kill rates reported for all accepted tasks
+- [ ] All failure cases and rejected tasks documented honestly in run logs
+- [ ] `MANUAL_STEPS.md` is empty / zero manual edits required
 
-## Impact and communication (15%)
-- [ ] `DEMO.md` rehearsed twice; `demo` and `demo --replay` both work
-- [ ] Technical explanation written and readable in 5 minutes
-- [ ] Sample packages in `samples/` are real and inspectable
+---
 
-## Format and rules
-- [ ] Package format matches the supplied interface, checked line by line against the spec
-- [ ] Submission format followed exactly
-- [ ] No API keys or secrets in repo or git history (scan output saved)
-- [ ] `MANUAL_STEPS.md` complete
-- [ ] Pipeline's own `pytest` suite passes
-- [ ] No dead code, no TODO placeholders, type hints present
-- [ ] Every number in the docs traces to a real run id
+## 3. Task Quality & Novelty
+- [ ] Tasks represent genuine feature additions / behaviour changes (bug fixes strictly excluded)
+- [ ] Upstream-novelty verified: feature tests run and fail against Click default branch without patch
+- [ ] Meaningful variation: at least 5 tasks substantively differing in behaviour, rules, or interactions
+- [ ] Behavioural distinctness matrix generated proving non-overlapping test coverage
 
-## Submit
-- [ ] Final commit tagged `submission`
-- [ ] Submitted via the official channel; confirmation saved
-- [ ] Finale prep: pitch slides (optional), demo environment tested, travel confirmed
+---
+
+## 4. Documentation & Declarations
+- [ ] `docs/MODELS.md` declares all tools, agents, and models used across planner, generator, and solver
+- [ ] `docs/TECHNICAL_EXPLANATION.md` covers design decisions, assumptions, reused components, and variation strategy
+- [ ] Walkthrough demo video (5-minute end-to-end screencast including a real rejection)
+- [ ] Submission slide deck completed following organizer template
+- [ ] `DECISIONS.md` and `OPEN_QUESTIONS.md` up to date
+
+---
+
+## 5. Security & Hygiene Scan
+- [ ] Secret scan passes: zero API keys, secrets, or credentials in working tree or git history
+- [ ] `.gitignore` covers `.env`, worktrees, local caches, and temporary runs
+- [ ] Git commit tagged `submission`
+- [ ] Submission delivered and confirmed through official hackathon portal

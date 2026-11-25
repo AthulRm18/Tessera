@@ -1,43 +1,40 @@
 # OPEN_QUESTIONS.md
 
-Resolve in Phase 0 and at the 19 Nov explainer. Mark each: **answered** (with source) or **unknown, need human**.
+Status of questions against official organizer communications. Updated: 25 Nov 2026.
 
-## Supplied materials
-- [x] **What is the task interface?** ANSWERED: Harbor format (harborframework.com). Source: Klent Abistado email.
-- [ ] What language, framework and size is the official supplied repo? How are dependencies installed? **unknown, need human (Hack2Skill)**
-- [ ] What is the test command and how are per-test results exposed (JUnit XML, JSON, text)? **unknown, need human**
-- [ ] Is the baseline test suite green on a clean checkout? Any slow or flaky tests? **unknown, need human**
-- [ ] What are the submission formats? One file, a folder, an archive, a repo link? **unknown, need human**
-- [ ] Which target models are named? Is solver testing against them expected or optional? **unknown, need human**
+## Official Confirmations from PDF (Resolved)
+- [x] **Which repositories are permitted?** Confirmed: Exactly three allowed (`pallets/click`, `colinhacks/zod`, `open-source-parsers/jsoncpp`). Arbitrary repos not permitted.
+- [x] **Task type scope?** Confirmed: Features and behaviour changes ONLY. Bug fixes are strictly OUT OF SCOPE.
+- [x] **Can tasks start from a modified repo?** Confirmed: NO. Every task starts from a real commit of the chosen repository where all tests pass.
+- [x] **Harbor version?** Confirmed: Harbor 0.25.x (`pip install "harbor==0.25.*"`).
+- [x] **Task package structure?** Confirmed: 5 core components per task folder: `instruction.md`, `solution/`, `tests/` (with `fail_to_pass.json` and `pass_to_pass.json`), `environment/Dockerfile`, `task.toml`.
+- [x] **Official validation commands?** Confirmed: `harbor run -p <task_dir> -a nop -k 1 -o <out_dir> --no-delete -y` (reward 0.0) and `harbor run -p <task_dir> -a oracle -k 1 -o <out_dir> --no-delete -y` (reward 1.0).
+- [x] **Required task count?** Confirmed: Minimum 5 distinct, substantively different tasks from a single repository.
 
-## Rules and limits
-- [ ] Usage limits for the Claude Code subscription and model API (tokens, requests, rate limits)? **unknown — API not yet issued**
-- [x] Is a minimum number of tasks expected, or is quality over count? ANSWERED: "meaningful variation beats a high task count." (official page)
-- [ ] Are tasks required to be of a certain difficulty or size? **unknown, need human**
-- [ ] Are there IP and licensing terms for what we build? Who owns the code after the event? **unknown, need human**
-- [ ] Can the repo be modified in place, or must tasks be diffs only? **unknown, need human**
-- [ ] Is a hidden test repo used to check generalisation? **unknown, need human**
+---
 
-## UNVERIFIED items (from Q&A recording — confirm before relying on)
-- [ ] Are there three candidate repos to choose from? **unverified**
-- [ ] Can tasks be bug-fix tasks (not only feature tasks)? **unverified**
-- [ ] Organizers' validation checks: (a) original repo works as-is; (b) tests pass after implementation; (c) tests fail when feature removed — are these the exact three checks? **unverified**
-- [ ] What does "originality includes checkpointing" mean exactly? **unverified**
-- [ ] Background context is SWE-bench, SWE-bench Verified, LiveCodeBench — any formal connection/benchmark alignment required? **unverified**
+## UNCONFIRMED / Pending Questions (Tracked for Organizers)
 
-## Logistics
-- [ ] Is travel to New Delhi for the 20 Dec finale covered for finalists? **unknown, need human**
-- [ ] How and where do we submit? Deadline time zone on 6 Dec? **unknown, need human**
-- [ ] Is the demo expected to be live against the supplied repo? **unknown, need human**
-- [ ] Is the track choice locked after registration? **unknown, need human**
+1. **Pipeline Execution vs Package Evaluation:**
+   - *Question:* Will the judges re-run the entire task-generation pipeline from scratch, or will they only run `harbor run` on the committed sample task packages in `samples/`?
+   - *Impact on Tessera:* We ensure BOTH paths work seamlessly: the pipeline generates tasks reproducibly via CLI, and every sample task package in `samples/` runs independently via Harbor 0.25.x.
 
-## Team
-- [ ] Team of 3–4 confirmed? Roles assigned? **in progress — see PLAN.md**
-- [ ] Everyone has API access and working dev environment? **API not yet issued**
+2. **Standardized Docker Environment Definition:**
+   - *Question:* What does the "standardized Docker environment" used by judges entail (e.g. OS base image, resource limits, Docker daemon configuration, host architecture x86_64)?
+   - *Impact on Tessera:* All `environment/Dockerfile` definitions will be self-contained on standard Debian/Ubuntu multi-arch with pinned dependencies.
 
-## Answers log
-| Question | Answer | Source / person | Date |
-|---|---|---|---|
-| Task interface format | Harbor (harborframework.com) | Klent Abistado, Hack2Skill (email) | Before 23 Nov 2026 |
-| Must we wait for official repo? | No — pick any repo; swap later | Klent Abistado, Hack2Skill (email) | Before 23 Nov 2026 |
-| Quality vs count | Quality wins ("meaningful variation beats high task count") | Official hackathon page | 10 Nov 2026 |
+3. **Criteria Weights Discrepancy:**
+   - *Question:* The official hackathon FAQ previously listed 5 weighted criteria (25% Implementation, 25% Validity, 20% Variation, 15% Engineering Judgement, 15% Impact/Communication). The new PDF lists 3 primary categories: (1) Implementation & Repeatability, (2) Validity & Validation Evidence, (3) Task Quality & Novelty. What are the official percentage weights?
+   - *Impact on Tessera:* Satisfy both frameworks by maintaining rigor across implementation, proof/validity, and variation.
+
+4. **Team Size Conflict:**
+   - *Question:* The original FAQ stated teams must be 3–4 members (solo not accepted). The new PDF states "Teams of 1 to 4 individuals are allowed, and solo participants are accepted." Which rule governs final eligibility?
+   - *Impact on Tessera:* Our team structure complies with both (1–4 members).
+
+5. **Organizer Credit Availability:**
+   - *Question:* Will Claude Code or model API access credits be issued before submission, or should teams rely entirely on their own API keys?
+   - *Impact on Tessera:* We use our own environment-variable driven LLM providers (Gemini/Claude) with strict budget guards.
+
+6. **Video & Deck Specifics:**
+   - *Question:* Are there strict length limits on the walkthrough video (e.g., max 5 minutes)? Is the submission deck restricted to a specific slide count in the organizer template?
+   - *Impact on Tessera:* Target a concise 5-minute screencast and tight slide deck mapped directly to the criteria.

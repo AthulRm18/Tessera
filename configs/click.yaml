@@ -1,0 +1,51 @@
+# configs/click.yaml — Official Hackathon Starter: pallets/click (Python, BSD-3-Clause)
+# Repo: https://github.com/pallets/click
+# Pinned release tag: 8.5.1
+# Full 40-character base commit: cf19179e8e2fd54c601378cec9e0d21bb12b6fb1
+
+repo:
+  path: "./target_repo"
+  base_ref: "cf19179e8e2fd54c601378cec9e0d21bb12b6fb1"
+  setup_cmd: "pip install -e ."
+  test_cmd: "python -m pytest -v --tb=short"
+  result_format: "pytest"
+  timeout_s: 120
+  docker_image: "tessera-click:cf19179"
+
+generation:
+  n_tasks: 5
+  enable_bugfix_axis: false  # Official PDF strictly excludes bug fixes
+  behaviour_axes:
+    - parameter_validation_rules
+    - custom_param_type
+    - option_interaction_or_precedence
+    - help_formatting_behaviour
+    - context_or_command_chaining
+    - threshold_or_limit
+    - state_transition
+    - idempotency
+  max_repairs: 2
+
+gates:
+  determinism_runs: 3
+  mutation_kill_threshold: 0.70
+  solver_attempts: 3
+  solver_model_env: "LLM_SOLVER_MODEL"
+
+llm:
+  provider_env: "LLM_PROVIDER"
+  model_env: "LLM_MODEL"
+  key_env: "GEMINI_API_KEY"
+  max_tokens: 8192
+  temperature: 0.2
+
+budget:
+  max_tokens_per_run: 200000
+  max_cost_per_run: 2.00
+  max_tokens_per_task: 40000
+  max_cost_per_task: 0.40
+
+output:
+  runs_dir: "runs/click"
+  packages_dir: "packages/click"
+  cache_dir: "runs/cache"
