@@ -84,16 +84,22 @@ def plan_task_with_llm(
     if prior_titles:
         avoid_str = f"Avoid overlapping with already planned tasks: {', '.join(prior_titles)}\n"
 
+    outline = ""
+    if Path("target_repo", module.path).exists():
+        from factory.repo import extract_module_outline
+        outline = extract_module_outline("target_repo", module.path, max_chars=3000)
+
     prompt = (
         f"Module: {module.path}\n"
-        f"Existing Public Symbols in Module: {', '.join(existing_symbols[:18])}\n"
+        f"Existing Public Symbols & Signatures (DO NOT re-propose parameters or features already present!):\n"
+        f"{outline or ', '.join(existing_symbols[:18])}\n\n"
         f"Targeted Behaviour Axis: {axis}\n"
         f"Interaction Partner Module: {partner_path or 'None (isolated within module)'}\n"
         f"{avoid_str}\n"
         "Return a JSON object with:\n"
         '{\n'
-        '  "title": "<short descriptive feature title>",\n'
-        '  "description": "<clear description of the new feature/behaviour rule and expected CLI/API contract>",\n'
+        '  "title": "<short descriptive NEW feature title>",\n'
+        '  "description": "<clear description of the NEW feature/behaviour rule and expected CLI/API contract>",\n'
         '  "target_symbols": ["<1-3 real public symbol names from the module that will be extended or referenced>"]\n'
         '}\n'
     )

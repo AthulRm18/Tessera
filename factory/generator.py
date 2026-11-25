@@ -99,7 +99,7 @@ Strict rules:
 IMPLEMENTATION_SYSTEM_PROMPT = """You are an expert software developer and test engineer.
 Given a repository module (plus package exports & test style example) and `instruction.md`:
 Produce:
-1. Search-and-replace edit blocks ONLY on `src/` files using exact verbatim lines from the supplied source (our tooling applies them cleanly and generates `git diff`).
+1. Search-and-replace edit blocks ONLY on `src/` files using exact verbatim lines from the supplied source.
    - NEVER modify existing test files.
    - Respect lightweight module import rules (lazy-import any new stdlib modules inside functions/methods rather than at module top-level).
 2. Comprehensive pytest feature tests verifying EVERY numbered acceptance criterion.
@@ -108,54 +108,48 @@ Produce:
    - CRITICAL: Do NOT fail pytest collection when the feature is absent on the base commit! Look up newly added symbols inside each test body (e.g. `assert hasattr(click, "...")` or inner `from ... import ...`) rather than top-level module imports of brand-new symbols. That ensures collection succeeds and each test FAILS cleanly on the base commit with `AssertionError` / `AttributeError` / `ImportError`.
    - Assert observable behaviour, exact specified error messages, and contracts (NEVER private internal attributes). Include 2-5 inline edge/adjacent assertions.
 
-Format your response using these exact delimiter tags (do NOT wrap inside JSON):
+Use this EXACT format (do NOT wrap inside JSON):
 
-<<<TEST_FILENAME>>>
-test_feature_name.py
-<<<END_TEST_FILENAME>>>
+TEST_FILENAME: test_feature_name.py
 
-<<<EDIT file="src/path/to/file.py">>>
-<<<FIND>>>
-exact existing source lines copied verbatim
-<<<END_FIND>>>
-<<<REPLACE>>>
-new replacement source lines
-<<<END_REPLACE>>>
-<<<END_EDIT>>>
+FILE: src/path/to/file.py
+<<<<<<< SEARCH
+exact existing lines copied verbatim from source
+=======
+replacement lines
+>>>>>>> REPLACE
 
-<<<TEST_CODE>>>
+```python
+# TEST_CODE
 from __future__ import annotations
 ...
-<<<END_TEST_CODE>>>
+```
 """
 
 REPAIR_SYSTEM_PROMPT = """You are an expert software developer and test engineer repairing a benchmark task that failed an automated gate.
 Review the exact gate failure feedback (e.g. edit mismatch, fail-to-pass error, regression failure, traceability gap, or surviving mutation lines), `instruction.md`, previous patch, and previous tests.
 Fix the edits and/or tests (keeping `instruction.md` contracts exact and consistent) so that:
-1. All `<<<EDIT>>>` blocks match verbatim base lines in `src/` ONLY (or provide a complete corrected unified diff).
+1. Every SEARCH block matches exact verbatim lines from the base `src/` source.
 2. Feature tests collect cleanly without collection-time ImportError on base repo, FAIL on base repo, and PASS on patched repo.
 3. Zero baseline regression tests fail (watch out for Click's `test_light_imports` startup import checks!).
 4. Every AC (`AC1`..) has a `# ACn` tagged test, and tests kill code mutants (strengthen assertions if mutants survived!).
 
-Format your response using these exact delimiter tags (do NOT wrap inside JSON):
+Use this EXACT format (do NOT wrap inside JSON):
 
-<<<NOTES>>>
-Summary of fixes made
-<<<END_NOTES>>>
+NOTES: Brief summary of fixes made
 
-<<<EDIT file="src/path/to/file.py">>>
-<<<FIND>>>
-exact existing base lines
-<<<END_FIND>>>
-<<<REPLACE>>>
+FILE: src/path/to/file.py
+<<<<<<< SEARCH
+exact existing base lines copied verbatim
+=======
 replacement lines
-<<<END_REPLACE>>>
-<<<END_EDIT>>>
+>>>>>>> REPLACE
 
-<<<TEST_CODE>>>
+```python
+# TEST_CODE
 from __future__ import annotations
 ...
-<<<END_TEST_CODE>>>
+```
 """
 
 
@@ -166,16 +160,24 @@ def _extract_tagged_sections(
     base_commit: str = "",
     fallback_patch: str = "",
 ) -> tuple[str, str, str]:
-    """Extract/synthesize patch, test_code, and optional filename from edit/patch blocks."""
-    def _between(tag: str) -> str | None:
-        m = re.search(rf"<<<{tag}>>>\s*(.*?)\s*<<<END_{tag}>>>", raw_content, re.DOTALL)
-        return m.group(1) if m else None
+    """Extract/synthesize patch, test_code, and optional filename from SEARCH/REPLACE + python code block."""
+    # Filename
+    fname_m = re.search(r"TEST_FILENAME:\s*([^\n]+)", raw_content)
+    if not fname_m:
+        fname_m = re.search(r"<<<TEST_FILENAME>>>\s*(.*?)\s*<<<END_TEST_FILENAME>>>", raw_content, re.DOTALL)
+    fname = fname_m.group(1).strip() if fname_m else fallback_filename
 
-    test_code = _between("TEST_CODE")
-    fname = _between("TEST_FILENAME")
+    # Test code: either <<<TEST_CODE>>>...<<<END_TEST_CODE>>> OR last ```python ... ``` block containing `def test_`
+    tc_m = re.search(r"<<<TEST_CODE>>>\s*(.*?)\s*<<<END_TEST_CODE>>>", raw_content, re.DOTALL)
+    test_code = tc_m.group(1) if tc_m else None
+    if test_code is None:
+        py_blocks = re.findall(r"```python\s*\n(.*?)```", raw_content, re.DOTALL)
+        test_blocks = [b for b in py_blocks if "def test_" in b]
+        if test_blocks:
+            test_code = test_blocks[-1]
+
     patch = ""
-
-    if repo_path is not None and base_commit and "<<<EDIT" in raw_content:
+    if repo_path is not None and base_commit:
         from factory.repo import synthesize_patch_from_response
         ok, synth_patch, err = synthesize_patch_from_response(repo_path, base_commit, raw_content)
         if ok:
@@ -184,24 +186,12 @@ def _extract_tagged_sections(
             console.print(f"  [yellow]Edit synthesis note:[/yellow] {err}")
 
     if not patch:
-        p_raw = _between("PATCH")
-        if p_raw is not None:
-            patch = _clean_diff_text(p_raw)
-        elif test_code is None:
-            try:
-                obj = json.loads(raw_content, strict=False)
-                patch = _clean_diff_text(str(obj.get("patch", "")))
-                test_code = str(obj.get("test_code", ""))
-                fname = obj.get("test_filename", fallback_filename)
-            except Exception:
-                patch = fallback_patch
-        else:
-            patch = fallback_patch
+        patch = fallback_patch
 
     return (
         patch,
         (test_code or "").strip().replace("\r\n", "\n") + "\n",
-        (fname or fallback_filename).strip(),
+        fname,
     )
 
 
@@ -244,7 +234,7 @@ def generate_requirements(
         f"Behaviour Axis: {plan.behaviour_axis}\n"
         f"Interaction Partner: {plan.interaction_partner or 'None'}\n"
         f"Problem Summary: {plan.description}\n\n"
-        f"Context from existing module ({plan.module}):\n```\n{module_code[:6000]}\n```\n"
+        f"Relevant Base Source ({plan.module}):\n```\n{module_code[:15000]}\n```\n"
     )
 
     data = call_llm(
@@ -261,15 +251,33 @@ def generate_requirements(
         expect_json=True,
     )
 
+    criteria_raw = data.get("acceptance_criteria", [])
+    criteria: list[AcceptanceCriterion] = []
+    for i, c in enumerate(criteria_raw, 1):
+        if isinstance(c, dict):
+            criteria.append(AcceptanceCriterion(id=str(c.get("id", f"AC{i}")), text=str(c.get("text", ""))))
+        else:
+            txt = str(c).strip()
+            m_ac = re.match(r"^(AC\d+)\s*[:\-]\s*(.+)$", txt)
+            if m_ac:
+                criteria.append(AcceptanceCriterion(id=m_ac.group(1), text=m_ac.group(2)))
+            else:
+                criteria.append(AcceptanceCriterion(id=f"AC{i}", text=txt))
+    if not criteria:
+        criteria = [AcceptanceCriterion(id="AC1", text=plan.description)]
+
+    iface_raw = data.get("interface", {})
+    if isinstance(iface_raw, dict):
+        symbols = iface_raw.get("symbols", plan.target_symbols)
+        details_str = str(iface_raw.get("details", ""))
+    else:
+        symbols = plan.target_symbols
+        details_str = str(iface_raw)
+
     md_text = data.get("markdown_text")
     if not md_text:
-        criteria_lines = "\n".join(
-            f"- **{c.get('id', f'AC{i}')}**: {c.get('text', '')}"
-            for i, c in enumerate(data.get("acceptance_criteria", []), 1)
-        )
-        iface = data.get("interface", {})
-        symbols_str = "\n".join(f"- `{s}`" for s in iface.get("symbols", []))
-        details_str = iface.get("details", "")
+        criteria_lines = "\n".join(f"- **{c.id}**: {c.text}" for c in criteria)
+        symbols_str = "\n".join(f"- `{s}`" for s in symbols)
         out_scope = data.get("out_of_scope", "Do not alter unrelated modules or break existing CLI tests.")
         md_text = (
             f"# {data.get('title', plan.title)}\n\n"
@@ -279,14 +287,6 @@ def generate_requirements(
             f"## Compatibility & Out of Scope\n\n{out_scope}\n"
             "- The entire existing repository test suite must continue to pass with zero regressions.\n"
         )
-
-    criteria_raw = data.get("acceptance_criteria", [])
-    criteria = [
-        AcceptanceCriterion(id=c.get("id", f"AC{i}"), text=c.get("text", str(c)))
-        for i, c in enumerate(criteria_raw, 1)
-    ] or [AcceptanceCriterion(id="AC1", text=plan.description)]
-
-    symbols = data.get("interface", {}).get("symbols", plan.target_symbols)
 
     req_file.write_text(md_text.replace("\r\n", "\n"), encoding="utf-8", newline="\n")
     with open(meta_file, "w", encoding="utf-8", newline="\n") as f:
@@ -531,8 +531,9 @@ def generate_and_validate_task(
     console.print(f"\n[bold]Generating Task:[/bold] [cyan]{plan.plan_id}[/cyan] ({plan.title})")
 
     repo_root = Path(cfg.repo.path).resolve()
-    module_code = _read_repo_context(repo_root, plan.module)
-    init_ctx = _read_repo_context(repo_root, "src/click/__init__.py", max_chars=4000)
+    from factory.repo import extract_targeted_source
+    module_code = extract_targeted_source(repo_root, plan.module, plan.target_symbols, max_chars=55000)
+    init_ctx = _read_repo_context(repo_root, "src/click/__init__.py", max_chars=5000)
     imports_test_ctx = _read_repo_context(repo_root, "tests/test_imports.py", max_chars=2500)
     extra_ctx = f"--- src/click/__init__.py ---\n{init_ctx}\n\n--- tests/test_imports.py ---\n{imports_test_ctx}"
 

@@ -181,11 +181,12 @@ class GeminiProvider(BaseProvider):
             "system_instruction": "\n\n".join(system_parts) if system_parts else None,
             "response_mime_type": "application/json" if expect_json else None,
         }
-        # Disable thinking tokens for direct, complete structured output
-        try:
-            cfg_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
-        except Exception:
-            pass
+        # Only pass thinking_budget=0 on non-lite models that support it
+        if "lite" not in model.lower():
+            try:
+                cfg_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+            except Exception:
+                pass
 
         cfg = types.GenerateContentConfig(**cfg_kwargs)
 
@@ -202,6 +203,10 @@ class GeminiProvider(BaseProvider):
             except Exception as exc:
                 last_err = exc
                 msg = str(exc)
+                if ("400" in msg or "INVALID_ARGUMENT" in msg) and "thinking_config" in cfg_kwargs:
+                    cfg_kwargs.pop("thinking_config", None)
+                    cfg = types.GenerateContentConfig(**cfg_kwargs)
+                    continue
                 transient = any(code in msg for code in ("503", "429", "UNAVAILABLE", "RESOURCE_EXHAUSTED"))
                 if not transient or delay_s is None:
                     raise

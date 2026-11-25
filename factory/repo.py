@@ -270,6 +270,76 @@ def extract_file_symbols(repo_path: str | Path, rel_path: str) -> FileSymbols:
     return fs
 
 
+def extract_module_outline(repo_path: str | Path, rel_path: str, max_chars: int = 4000) -> str:
+    """Return AST-extracted public class/method signatures + one-line docstrings for a module."""
+    import ast
+
+    full_path = Path(repo_path) / rel_path
+    if not full_path.exists():
+        return ""
+    text = full_path.read_text(encoding="utf-8", errors="ignore")
+    try:
+        tree = ast.parse(text)
+    except Exception:
+        return text[:max_chars]
+
+    lines_out: list[str] = []
+
+    def _sig(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
+        args = [a.arg for a in node.args.posonlyargs + node.args.args]
+        kw = [a.arg for a in node.args.kwonlyargs]
+        all_a = args + (["*"] + kw if kw else [])
+        return f"{node.name}({', '.join(all_a)})"
+
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, ast.ClassDef) and not node.name.startswith("_"):
+            raw_doc = ast.get_docstring(node) or ""
+            doc = raw_doc.splitlines()[0] if raw_doc else ""
+            lines_out.append(f"class {node.name}:  # {doc[:90]}")
+            for sub in node.body:
+                if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)) and (
+                    sub.name == "__init__" or not sub.name.startswith("_")
+                ):
+                    lines_out.append(f"    def {_sig(sub)}")
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not node.name.startswith("_"):
+            raw_doc = ast.get_docstring(node) or ""
+            doc = raw_doc.splitlines()[0] if raw_doc else ""
+            lines_out.append(f"def {_sig(node)}:  # {doc[:90]}")
+
+    return "\n".join(lines_out)[:max_chars]
+
+
+def extract_targeted_source(
+    repo_path: str | Path, rel_path: str, target_symbols: list[str], max_chars: int = 45000
+) -> str:
+    """Return full module if <= max_chars, else header + exact AST bodies of target_symbols."""
+    import ast
+
+    full_path = Path(repo_path) / rel_path
+    if not full_path.exists():
+        return ""
+    text = full_path.read_text(encoding="utf-8", errors="replace")
+    if len(text) <= max_chars:
+        return text
+
+    src_lines = text.splitlines()
+    chunks: list[str] = ["\n".join(src_lines[:100])]
+    try:
+        tree = ast.parse(text)
+        targets_clean = {s.split(".")[-1].split("(")[0].strip() for s in target_symbols}
+        for node in ast.iter_child_nodes(tree):
+            if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                if node.name in targets_clean or not targets_clean:
+                    s = max(0, node.lineno - 1)
+                    e = getattr(node, "end_lineno", node.lineno + 30)
+                    chunks.append(f"# --- {node.name} (lines {s+1}-{e}) ---\n" + "\n".join(src_lines[s:e]))
+    except Exception:
+        pass
+    chunks.append("# --- module tail ---\n" + "\n".join(src_lines[-80:]))
+    combined = "\n\n".join(chunks)
+    return combined[:max_chars]
+
+
 def build_symbol_repo_map(repo_path: str | Path) -> list[FileSymbols]:
     """Return list of FileSymbols for all tracked files in the repository."""
     raw_files = build_repo_map(repo_path)
@@ -563,50 +633,93 @@ def synthesize_patch_from_response(
     base_commit: str,
     raw_response: str,
 ) -> tuple[bool, str, str]:
-    """Convert <<<EDIT file="...">>> <<<FIND>>>...<<<REPLACE>>>...<<<END_EDIT>>> blocks
-    into a clean git unified diff, or extract <<<PATCH>>>...<<<END_PATCH>>> fallback.
+    """Convert standard SEARCH/REPLACE edit blocks (or <<<EDIT>>> / <<<PATCH>>> fallbacks)
+    into a clean git unified diff.
 
-    Tolerates LLMs using <<<FIND>>> instead of <<<END_FIND>>> or omitting trailing <<<END_EDIT>>>.
+    Primary format:
+      FILE: src/path/to/file.py
+      <<<<<<< SEARCH
+      exact old lines
+      =======
+      new lines
+      >>>>>>> REPLACE
+
     Returns (ok, patch_text, error_message).
     """
     edit_blocks: list[tuple[str, str, str]] = []
-    chunks = re.split(r'<<<EDIT\s+file=["\']([^"\']+)["\']\s*>>>', raw_response)
-    # chunks looks like [prefix, file1, body1, file2, body2, ...]
-    for i in range(1, len(chunks) - 1, 2):
-        fpath = chunks[i].strip()
-        body = chunks[i + 1]
-        if "<<<FIND>>>" not in body or "<<<REPLACE>>>" not in body:
-            continue
-        after_find = body.split("<<<FIND>>>", 1)[1]
-        find_part, _, rest = after_find.partition("<<<REPLACE>>>")
-        # Clean possible closing FIND markers (<<<END_FIND>>> or stray <<<FIND>>>)
-        for end_f in ("<<<END_FIND>>>", "<<<FIND>>>"):
-            if end_f in find_part:
-                find_part = find_part.split(end_f, 1)[0]
-        find_part = find_part.strip("\r\n")
 
-        repl_part = rest
-        for end_r in ("<<<END_REPLACE>>>", "<<<REPLACE>>>", "<<<END_EDIT>>>", "<<<END_FIND>>>"):
-            if end_r in repl_part:
-                repl_part = repl_part.split(end_r, 1)[0]
-        repl_part = repl_part.strip("\r\n")
+    # 1. Standard Aider-style SEARCH/REPLACE blocks with preceding FILE: path
+    sr_pattern = re.compile(
+        r"(?:FILE:\s*|File:\s*|```[a-z]*\s*\n\s*#\s*|<<<FILE\s+)([^\n`>]+?)(?:\s*>>>)?\s*\n+"
+        r"(?:```[a-z]*\s*\n)?<<<<<<< SEARCH\s*\n(.*?)\n=======\s*\n(.*?)\n>>>>>>> REPLACE",
+        re.DOTALL,
+    )
+    for m in sr_pattern.finditer(raw_response):
+        fpath = m.group(1).strip().strip("`\"'")
+        edit_blocks.append((fpath, m.group(2).replace("\r\n", "\n"), m.group(3).replace("\r\n", "\n")))
 
-        if "<<<" in find_part or "<<<" in repl_part:
-            continue
-        edit_blocks.append((fpath, find_part, repl_part))
+    # Also handle multiple SEARCH/REPLACE blocks under a single FILE: header
+    if not edit_blocks and "<<<<<<< SEARCH" in raw_response:
+        current_file = ""
+        lines = raw_response.splitlines()
+        idx = 0
+        while idx < len(lines):
+            ln = lines[idx].strip()
+            m_f = re.match(r"^(?:FILE|File):\s*(.+)$", ln)
+            if m_f:
+                current_file = m_f.group(1).strip().strip("`\"'")
+                idx += 1
+                continue
+            if ln.startswith("<<<<<<< SEARCH") and current_file:
+                idx += 1
+                s_lines: list[str] = []
+                while idx < len(lines) and not lines[idx].strip().startswith("======="):
+                    s_lines.append(lines[idx])
+                    idx += 1
+                idx += 1  # skip =======
+                r_lines: list[str] = []
+                while idx < len(lines) and not lines[idx].strip().startswith(">>>>>>> REPLACE"):
+                    r_lines.append(lines[idx])
+                    idx += 1
+                edit_blocks.append((current_file, "\n".join(s_lines), "\n".join(r_lines)))
+            idx += 1
+
+    # 2. Fallback: <<<EDIT file="...">>> blocks
+    if not edit_blocks and "<<<EDIT" in raw_response:
+        chunks = re.split(r'<<<EDIT\s+file=["\']([^"\']+)["\']\s*>>>', raw_response)
+        for i in range(1, len(chunks) - 1, 2):
+            fpath = chunks[i].strip()
+            body = chunks[i + 1]
+            if "<<<FIND>>>" not in body or "<<<REPLACE>>>" not in body:
+                continue
+            after_find = body.split("<<<FIND>>>", 1)[1]
+            find_part, _, rest = after_find.partition("<<<REPLACE>>>")
+            for end_f in ("<<<END_FIND>>>", "<<<FIND>>>"):
+                if end_f in find_part:
+                    find_part = find_part.split(end_f, 1)[0]
+            find_part = find_part.strip("\r\n")
+
+            repl_part = rest
+            for end_r in ("<<<END_REPLACE>>>", "<<<REPLACE>>>", "<<<END_EDIT>>>", "<<<END_FIND>>>"):
+                if end_r in repl_part:
+                    repl_part = repl_part.split(end_r, 1)[0]
+            repl_part = repl_part.strip("\r\n")
+
+            if "<<<" in find_part or "<<<" in repl_part:
+                continue
+            edit_blocks.append((fpath, find_part, repl_part))
 
     if not edit_blocks:
-        # Fallback to <<<PATCH>>> ... <<<END_PATCH>>>
+        # 3. Fallback: <<<PATCH>>> ... <<<END_PATCH>>> or fenced ```diff
         m = re.search(r"<<<PATCH>>>\s*(.*?)\s*<<<END_PATCH>>>", raw_response, re.DOTALL)
+        if not m:
+            m = re.search(r"```diff\s*\n(.*?)\n```", raw_response, re.DOTALL)
         if m:
             p = m.group(1).strip().replace("\r\n", "\n")
-            if p.startswith("```"):
-                lines = p.splitlines()
-                p = "\n".join(lines[1:-1] if lines and lines[-1].startswith("```") else lines[1:])
             if p and not p.endswith("\n"):
                 p += "\n"
             return bool(p), p, "" if p else "Empty PATCH block"
-        return False, "", "No <<<EDIT>>> or <<<PATCH>>> blocks found in model output."
+        return False, "", "No SEARCH/REPLACE or PATCH blocks found in model output."
 
     wt_parent = Path(tempfile.mkdtemp(prefix="tessera_edit_wt_"))
     wt: Path | None = None

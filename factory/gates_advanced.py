@@ -446,20 +446,16 @@ You are given ONLY the task specification (instruction.md) and the base source f
 Implement the specification faithfully so that all acceptance criteria and existing tests pass.
 Rules:
 - Respect the repository's existing conventions, types, and import constraints (never add eager top-level stdlib imports if tests guard startup import footprint).
-- Output exact search-and-replace edit blocks ONLY on files under `src/` using this exact format (one block per replacement; copy FIND text verbatim from the base source):
+- Output exact SEARCH/REPLACE edit blocks ONLY on files under `src/` using this exact format (copy SEARCH text verbatim from the base source):
 
-<<<REASONING>>>
-Brief summary of implementation
-<<<END_REASONING>>>
+REASONING: Brief summary of implementation
 
-<<<EDIT file="src/path/to/file.py">>>
-<<<FIND>>>
-exact existing source lines to match verbatim
-<<<END_FIND>>>
-<<<REPLACE>>>
+FILE: src/path/to/file.py
+<<<<<<< SEARCH
+exact existing source lines copied verbatim
+=======
 new replacement source lines
-<<<END_REPLACE>>>
-<<<END_EDIT>>>
+>>>>>>> REPLACE
 """
 
 
