@@ -191,7 +191,7 @@ class GeminiProvider(BaseProvider):
         cfg = types.GenerateContentConfig(**cfg_kwargs)
 
         last_err: Exception | None = None
-        for delay_s in (3.0, 8.0, 15.0, None):
+        for delay_s in (4.0, 10.0, 20.0, 30.0, None):
             try:
                 resp = client.models.generate_content(model=model, contents=contents, config=cfg)
                 usage = resp.usage_metadata

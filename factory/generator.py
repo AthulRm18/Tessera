@@ -75,26 +75,104 @@ def check_budget_guard(
 REQUIREMENTS_SYSTEM_PROMPT = """You are a senior technical specifications writer creating coding benchmark tasks for evaluating AI coding systems.
 Write clear, unambiguous, achievable requirements for a NEW feature or behaviour extension to an existing repository.
 Strict rules:
-1. Include a numbered list of Acceptance Criteria (AC1, AC2, AC3, ...).
-2. Include a thorough `Interface` specification listing EVERY public symbol name, exact signature, parameter names/types, defaults, return types, and the EXACT error/exception strings or CLI output formats that automated tests will assert against.
-3. Explicitly specify that the entire existing repository test suite must continue passing without regression (avoid adding top-level eager stdlib imports if the repository restricts startup imports).
-4. Include an `Out of Scope` section bounding the task.
-5. Absolutely NO implementation hints, pseudocode, solution code snippets, or file diffs. Specify WHAT, never HOW.
-6. Respond ONLY with a valid JSON object:
-{
-  "title": "<task title>",
-  "problem_description": "<clear description of the feature and rationale>",
-  "acceptance_criteria": [
-    {"id": "AC1", "text": "<criterion 1>"},
-    {"id": "AC2", "text": "<criterion 2>"}
-  ],
-  "interface": {
-    "symbols": ["<symbol1>", "<symbol2>"],
-    "details": "<exact signatures, parameter defaults, return values, and exact error/output templates>"
-  },
-  "out_of_scope": "<boundaries and exclusions>"
-}
+1. Include a `## Acceptance Criteria` section with numbered criteria (`- **AC1**: ...`, `- **AC2**: ...`, ...).
+2. Include a thorough `## Interface` section listing EVERY public symbol name under `### Symbols` (as `- `symbol_name``) and exact signatures, parameter names/types, defaults, return types, and the EXACT error/exception strings or CLI output formats under `### Contract Details`.
+3. Explicitly specify that the entire existing repository test suite must continue passing without regression (and mention startup import constraints if relevant, e.g. avoiding eager top-level stdlib imports at module import time).
+4. Include a `## Compatibility & Out of Scope` section bounding the task.
+5. Absolutely NO implementation hints, pseudocode, code snippets for the solution, or file diffs. Specify WHAT, never HOW.
+
+Format your output cleanly in Markdown (do NOT wrap inside JSON) using these exact top-level headings:
+# <Task Title>
+
+## Problem Description
+...
+
+## Acceptance Criteria
+- **AC1**: ...
+- **AC2**: ...
+
+## Interface
+### Symbols
+- `SymbolName`
+
+### Contract Details
+...
+
+## Compatibility & Out of Scope
+- ...
+- The entire existing repository test suite must continue to pass with zero regressions.
 """
+
+
+def _parse_requirements_response(
+    raw: str, plan: TaskPlan
+) -> tuple[str, list[AcceptanceCriterion], list[str]]:
+    """Parse either JSON (mock/legacy) or structured Markdown output from generate_requirements."""
+    stripped = raw.strip()
+    if stripped.startswith("{"):
+        data = json.loads(stripped, strict=False)
+        criteria_raw = data.get("acceptance_criteria", [])
+        criteria: list[AcceptanceCriterion] = []
+        for i, c in enumerate(criteria_raw, 1):
+            if isinstance(c, dict):
+                criteria.append(AcceptanceCriterion(id=str(c.get("id", f"AC{i}")), text=str(c.get("text", ""))))
+            else:
+                txt = str(c).strip()
+                m_ac = re.match(r"^(AC\d+)\s*[:\-]\s*(.+)$", txt)
+                criteria.append(
+                    AcceptanceCriterion(id=m_ac.group(1), text=m_ac.group(2))
+                    if m_ac
+                    else AcceptanceCriterion(id=f"AC{i}", text=txt)
+                )
+        if not criteria:
+            criteria = [AcceptanceCriterion(id="AC1", text=plan.description)]
+
+        iface_raw = data.get("interface", {})
+        if isinstance(iface_raw, dict):
+            symbols = list(iface_raw.get("symbols", plan.target_symbols))
+            details_str = str(iface_raw.get("details", ""))
+        else:
+            symbols = list(plan.target_symbols)
+            details_str = str(iface_raw)
+
+        md_text = data.get("markdown_text")
+        if not md_text:
+            criteria_lines = "\n".join(f"- **{c.id}**: {c.text}" for c in criteria)
+            symbols_str = "\n".join(f"- `{s}`" for s in symbols)
+            out_scope = data.get("out_of_scope", "Do not alter unrelated modules or break existing CLI tests.")
+            md_text = (
+                f"# {data.get('title', plan.title)}\n\n"
+                f"## Problem Description\n\n{data.get('problem_description', plan.description)}\n\n"
+                f"## Acceptance Criteria\n\n{criteria_lines}\n\n"
+                f"## Interface\n\n### Symbols\n{symbols_str}\n\n### Contract Details\n{details_str}\n\n"
+                f"## Compatibility & Out of Scope\n\n{out_scope}\n"
+                "- The entire existing repository test suite must continue to pass with zero regressions.\n"
+            )
+        return md_text, criteria, symbols
+
+    # Markdown output path
+    md_text = stripped
+    if md_text.startswith("```"):
+        lines = md_text.splitlines()
+        md_text = "\n".join(lines[1:-1] if lines and lines[-1].startswith("```") else lines[1:]).strip()
+
+    criteria = []
+    for m in re.finditer(r"[-*\d.]*\s*\*{0,2}(AC\d+)\*{0,2}\s*[:\-]\s*(.+)", md_text):
+        criteria.append(AcceptanceCriterion(id=m.group(1), text=m.group(2).strip()))
+    if not criteria:
+        criteria = [AcceptanceCriterion(id="AC1", text=plan.description)]
+
+    symbols: list[str] = []
+    sym_sec = re.search(r"###\s*Symbols\s*\n(.*?)(?=\n##|\n###|\Z)", md_text, re.DOTALL)
+    if sym_sec:
+        for line in sym_sec.group(1).splitlines():
+            m_sym = re.search(r"`([^`]+)`", line)
+            if m_sym:
+                symbols.append(m_sym.group(1).strip())
+    if not symbols:
+        symbols = list(plan.target_symbols)
+
+    return md_text, criteria, symbols
 
 IMPLEMENTATION_SYSTEM_PROMPT = """You are an expert software developer and test engineer.
 Given a repository module (plus package exports & test style example) and `instruction.md`:
@@ -248,45 +326,10 @@ def generate_requirements(
         cache_dir=cfg.output.cache_dir,
         max_tokens=cfg.llm.max_tokens,
         temperature=cfg.llm.temperature,
-        expect_json=True,
+        expect_json=False,
     )
 
-    criteria_raw = data.get("acceptance_criteria", [])
-    criteria: list[AcceptanceCriterion] = []
-    for i, c in enumerate(criteria_raw, 1):
-        if isinstance(c, dict):
-            criteria.append(AcceptanceCriterion(id=str(c.get("id", f"AC{i}")), text=str(c.get("text", ""))))
-        else:
-            txt = str(c).strip()
-            m_ac = re.match(r"^(AC\d+)\s*[:\-]\s*(.+)$", txt)
-            if m_ac:
-                criteria.append(AcceptanceCriterion(id=m_ac.group(1), text=m_ac.group(2)))
-            else:
-                criteria.append(AcceptanceCriterion(id=f"AC{i}", text=txt))
-    if not criteria:
-        criteria = [AcceptanceCriterion(id="AC1", text=plan.description)]
-
-    iface_raw = data.get("interface", {})
-    if isinstance(iface_raw, dict):
-        symbols = iface_raw.get("symbols", plan.target_symbols)
-        details_str = str(iface_raw.get("details", ""))
-    else:
-        symbols = plan.target_symbols
-        details_str = str(iface_raw)
-
-    md_text = data.get("markdown_text")
-    if not md_text:
-        criteria_lines = "\n".join(f"- **{c.id}**: {c.text}" for c in criteria)
-        symbols_str = "\n".join(f"- `{s}`" for s in symbols)
-        out_scope = data.get("out_of_scope", "Do not alter unrelated modules or break existing CLI tests.")
-        md_text = (
-            f"# {data.get('title', plan.title)}\n\n"
-            f"## Problem Description\n\n{data.get('problem_description', plan.description)}\n\n"
-            f"## Acceptance Criteria\n\n{criteria_lines}\n\n"
-            f"## Interface\n\n### Symbols\n{symbols_str}\n\n### Contract Details\n{details_str}\n\n"
-            f"## Compatibility & Out of Scope\n\n{out_scope}\n"
-            "- The entire existing repository test suite must continue to pass with zero regressions.\n"
-        )
+    md_text, criteria, symbols = _parse_requirements_response(str(data.get("content", "")), plan)
 
     req_file.write_text(md_text.replace("\r\n", "\n"), encoding="utf-8", newline="\n")
     with open(meta_file, "w", encoding="utf-8", newline="\n") as f:
