@@ -147,9 +147,10 @@ def run_g2(ctx: GateContext) -> G2Result:
     # Reject if base failures are import/syntax errors — not valid failures
     bad_types = {t for t in base_result.failure_types if t in ("import_error", "syntax_error")}
     if bad_types and base_result.n_failed == 0 and base_result.n_errors > 0:
+        tail = (base_result.raw_output or "").strip()[-2000:]
         return G2Result(
             passed=False,
-            evidence="Feature tests errored on base with import/syntax errors — invalid failure",
+            evidence=f"Feature tests errored on base with import/syntax errors — invalid failure.\n{tail}",
             base_failed=base_result.error_ids,
             organizer_checks=organizer,
             failure_types=list(bad_types),
@@ -183,9 +184,14 @@ def run_g2(ctx: GateContext) -> G2Result:
     _print_test_result(patched_result, "patched (expect PASS)")
 
     if not patched_result.passed or patched_result.n_failed > 0:
+        patched_failed_ids = patched_result.failed_ids + patched_result.error_ids
+        tail = (patched_result.raw_output or "").strip()[-2500:]
         return G2Result(
             passed=False,
-            evidence="Feature tests still FAIL after applying the reference patch",
+            evidence=(
+                f"Feature tests still FAIL after applying the reference patch "
+                f"(failed={patched_failed_ids}).\n{tail}"
+            ),
             base_failed=base_failed_ids,
             patched_passed=patched_result.passed_ids,
             organizer_checks=organizer,

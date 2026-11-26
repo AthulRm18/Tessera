@@ -162,7 +162,10 @@ class GeminiProvider(BaseProvider):
         if not key:
             raise RuntimeError("GEMINI_API_KEY (or LLM_API_KEY) not set in environment")
 
-        client = genai.Client(api_key=key)
+        client = genai.Client(
+            api_key=key,
+            http_options=types.HttpOptions(timeout=120_000),
+        )
 
         # Separate system message; convert roles: assistant -> model
         system_parts: list[str] = []
@@ -207,7 +210,11 @@ class GeminiProvider(BaseProvider):
                     cfg_kwargs.pop("thinking_config", None)
                     cfg = types.GenerateContentConfig(**cfg_kwargs)
                     continue
-                transient = any(code in msg for code in ("503", "429", "UNAVAILABLE", "RESOURCE_EXHAUSTED"))
+                transient = (
+                    any(code in msg for code in ("503", "429", "UNAVAILABLE", "RESOURCE_EXHAUSTED"))
+                    or "timeout" in msg.lower()
+                    or "timed out" in msg.lower()
+                )
                 if not transient or delay_s is None:
                     raise
                 console.print(f"[yellow]Transient Gemini API error; retrying in {delay_s:.0f}s...[/yellow]")
