@@ -27,6 +27,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -99,6 +100,26 @@ def is_container_runtime_available() -> bool:
         return False
 
 
+def _to_wsl_path(p: Path) -> str:
+    """Convert a Windows Path (or POSIX path) into a WSL2 POSIX path."""
+    resolved = p.resolve()
+    if resolved.drive:
+        drive_letter = resolved.drive[0].lower()
+        rest = resolved.as_posix()[2:]  # strip 'C:'
+        return f"/mnt/{drive_letter}{rest}"
+    return resolved.as_posix()
+
+
+def _extract_reward(out_dir: Path) -> str | None:
+    """Read the reward value from a Harbor output directory."""
+    if not out_dir.exists():
+        return None
+    reward_files = sorted(out_dir.glob("**/reward.txt"))
+    if not reward_files:
+        return None
+    return reward_files[0].read_text(encoding="utf-8").strip()
+
+
 def verify_package_container(
     package_path: str | Path,
     cfg: FactoryConfig,
@@ -132,33 +153,36 @@ def verify_package_container(
         console.print("  [yellow]⚠ Container runtime unavailable[/yellow]")
         return res
 
-    # Resolve relative path for Harbor
+    # Resolve paths cleanly for Harbor (WSL2 on Windows, POSIX on Linux)
     root_dir = Path.cwd().resolve()
+    wsl_root = _to_wsl_path(root_dir) if sys.platform == "win32" else root_dir.as_posix()
     try:
         rel_pkg = pkg.relative_to(root_dir).as_posix()
     except ValueError:
-        rel_pkg = pkg.as_posix()
+        rel_pkg = _to_wsl_path(pkg) if sys.platform == "win32" else pkg.as_posix()
 
-    # 2. Run Harbor with nop agent (expect reward 0)
-    console.print("  [cyan]Running Harbor container check: nop agent (expecting reward 0)...[/cyan]")
+    jobs_root = root_dir / "jobs"
+    nop_out_dir = jobs_root / f"verify_{task_id}_nop"
+    oracle_out_dir = jobs_root / f"verify_{task_id}_oracle"
+    shutil.rmtree(nop_out_dir, ignore_errors=True)
+    shutil.rmtree(oracle_out_dir, ignore_errors=True)
+    nop_out_dir.mkdir(parents=True, exist_ok=True)
+    oracle_out_dir.mkdir(parents=True, exist_ok=True)
+    wsl_nop_out = _to_wsl_path(nop_out_dir) if sys.platform == "win32" else nop_out_dir.as_posix()
+    wsl_oracle_out = _to_wsl_path(oracle_out_dir) if sys.platform == "win32" else oracle_out_dir.as_posix()
+
+    # 2. Run Harbor with nop agent (expect reward 0.0)
+    console.print("  [cyan]Running Harbor container check: nop agent (expecting reward 0.0)...[/cyan]")
     nop_cmd = (
         f'export PATH="$HOME/.local/bin:$PATH" && '
-        f'cd "{root_dir.as_posix()}" 2>/dev/null || cd /mnt/c/{root_dir.as_posix().lstrip("C:/")} && '
-        f'harbor run -p "{rel_pkg}" -a nop --quiet'
+        f'cd "{wsl_root}" && '
+        f'harbor run -p "{rel_pkg}" -a nop -k 1 -o "{wsl_nop_out}" --no-delete -y'
     )
-    nop_proc = _run_container_cmd(nop_cmd, timeout_s=cfg.repo.timeout_s + 60.0)
+    nop_proc = _run_container_cmd(nop_cmd, timeout_s=cfg.repo.timeout_s + 120.0)
     res.evidence["harbor_nop_stdout"] = nop_proc.stdout
     res.evidence["harbor_nop_stderr"] = nop_proc.stderr
 
-    # Check latest job reward for nop
-    jobs_dir = root_dir / "jobs"
-    latest_jobs = sorted(jobs_dir.glob("2026-*"), key=lambda p: p.stat().st_mtime, reverse=True)
-    nop_reward = None
-    if latest_jobs:
-        reward_files = list(latest_jobs[0].glob("**/reward.txt"))
-        if reward_files:
-            nop_reward = reward_files[0].read_text().strip()
-
+    nop_reward = _extract_reward(nop_out_dir)
     if nop_reward in ("0", "0.0"):
         console.print(f"  [green]✓ Nop check passed: feature absence detected (reward {nop_reward})[/green]")
     else:
@@ -166,24 +190,18 @@ def verify_package_container(
         console.print(f"  [red]✗ Nop check failed: expected reward 0.0, got {nop_reward}[/red]")
         return res
 
-    # 3. Run Harbor with oracle agent (expect reward 1)
-    console.print("  [cyan]Running Harbor container check: oracle agent (expecting reward 1)...[/cyan]")
+    # 3. Run Harbor with oracle agent (expect reward 1.0)
+    console.print("  [cyan]Running Harbor container check: oracle agent (expecting reward 1.0)...[/cyan]")
     oracle_cmd = (
         f'export PATH="$HOME/.local/bin:$PATH" && '
-        f'cd "{root_dir.as_posix()}" 2>/dev/null || cd /mnt/c/{root_dir.as_posix().lstrip("C:/")} && '
-        f'harbor run -p "{rel_pkg}" -a oracle --quiet'
+        f'cd "{wsl_root}" && '
+        f'harbor run -p "{rel_pkg}" -a oracle -k 1 -o "{wsl_oracle_out}" --no-delete -y'
     )
-    oracle_proc = _run_container_cmd(oracle_cmd, timeout_s=cfg.repo.timeout_s + 60.0)
+    oracle_proc = _run_container_cmd(oracle_cmd, timeout_s=cfg.repo.timeout_s + 120.0)
     res.evidence["harbor_oracle_stdout"] = oracle_proc.stdout
     res.evidence["harbor_oracle_stderr"] = oracle_proc.stderr
 
-    latest_jobs = sorted(jobs_dir.glob("2026-*"), key=lambda p: p.stat().st_mtime, reverse=True)
-    oracle_reward = None
-    if latest_jobs:
-        reward_files = list(latest_jobs[0].glob("**/reward.txt"))
-        if reward_files:
-            oracle_reward = reward_files[0].read_text().strip()
-
+    oracle_reward = _extract_reward(oracle_out_dir)
     if oracle_reward in ("1", "1.0"):
         console.print(f"  [green]✓ Oracle check passed: reference solution verified (reward {oracle_reward})[/green]")
         res.g1_passed = True
@@ -193,8 +211,8 @@ def verify_package_container(
         res.passed = True
         console.print(f"\n[green bold]✓ Package {task_id} successfully CONTAINER-VERIFIED[/green bold]")
     else:
-        res.errors.append(f"Oracle agent produced reward '{oracle_reward}' (expected '1')")
-        console.print(f"  [red]✗ Oracle check failed: expected reward 1, got {oracle_reward}[/red]")
+        res.errors.append(f"Oracle agent produced reward '{oracle_reward}' (expected '1.0')")
+        console.print(f"  [red]✗ Oracle check failed: expected reward 1.0, got {oracle_reward}[/red]")
 
     return res
 
@@ -221,15 +239,29 @@ def verify_package_native(
         return res
     console.print("  [green]✓ Structure check: Harbor format valid[/green]")
 
-    # 2. Load internal metadata if present (evidence/<task_id>/ or legacy tessera/)
-    meta_path = Path("evidence") / task_id / "task_metadata.json"
-    if not meta_path.exists():
-        meta_path = pkg / "tessera" / "task_metadata.json"
+    # 2. Resolve base_commit from package task.toml first, falling back to cfg or evidence
     base_commit = cfg.repo.base_ref
-    if meta_path.exists():
-        with open(meta_path, encoding="utf-8") as f:
-            meta = json.load(f)
-            base_commit = meta.get("base_commit", base_commit)
+    toml_path = pkg / "task.toml"
+    if toml_path.exists():
+        try:
+            with open(toml_path, "rb") as tf:
+                toml_data = tomllib.load(tf)
+            toml_commit = (
+                toml_data.get("metadata", {}).get("base_commit")
+                or toml_data.get("base_commit")
+            )
+            if toml_commit:
+                base_commit = str(toml_commit)
+        except Exception:
+            pass
+    if not base_commit:
+        meta_path = Path("evidence") / task_id / "task_metadata.json"
+        if not meta_path.exists():
+            meta_path = pkg / "tessera" / "task_metadata.json"
+        if meta_path.exists():
+            with open(meta_path, encoding="utf-8") as f:
+                meta = json.load(f)
+                base_commit = meta.get("base_commit", base_commit)
 
     # 3. Locate patch and tests
     patch_path = pkg / "solution" / "reference.patch"

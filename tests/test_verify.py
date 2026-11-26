@@ -46,6 +46,7 @@ def test_verify_good_package_end_to_end(
         metadata=meta,
         validation_report=report,
         test_cmd="python -m pytest -v --tb=short --no-header",
+        evidence_dir=tmp_path / "evidence",
     )
 
     cfg = FactoryConfig()
@@ -54,7 +55,7 @@ def test_verify_good_package_end_to_end(
     cfg.repo.test_cmd = "python -m pytest test_baseline.py -v --tb=short --no-header"
     cfg.repo.result_format = "pytest"
 
-    result = verify_package(pkg_dir, cfg, check_determinism=False)
+    result = verify_package(pkg_dir, cfg, native=True, check_determinism=False)
     assert result.passed, f"Verify should pass for good package; errors: {result.errors}"
     assert result.structural_check
     assert result.g1_passed
